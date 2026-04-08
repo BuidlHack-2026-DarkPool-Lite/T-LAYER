@@ -29,7 +29,18 @@ def _find_repo_root() -> Path:
 
 
 _ABI_PATH = _find_repo_root() / "packages" / "contracts-abi" / "DarkPoolEscrow.json"
-DARKPOOL_ESCROW_ABI = json.loads(_ABI_PATH.read_text())["abi"]
+
+try:
+    _abi_doc = json.loads(_ABI_PATH.read_text(encoding="utf-8"))
+except json.JSONDecodeError as exc:
+    raise ValueError(f"ABI JSON 파싱 실패: {_ABI_PATH}") from exc
+
+if not isinstance(_abi_doc, dict) or not isinstance(_abi_doc.get("abi"), list):
+    raise ValueError(
+        f"ABI 스키마 비정상: {_ABI_PATH} 에 dict + 'abi' list 필드가 있어야 함"
+    )
+
+DARKPOOL_ESCROW_ABI = _abi_doc["abi"]
 
 
 def _make_w3() -> Web3:
