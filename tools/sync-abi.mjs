@@ -36,6 +36,23 @@ async function syncOne({ name, artifact, out }) {
   }
 
   const raw = JSON.parse(await readFile(artifactPath, 'utf8'));
+
+  // 기대 필드 검증 — Hardhat artifacts 스키마가 깨지면 undefined 필드를
+  // 그대로 직렬화해서 잘못된 산출물이 디스크에 써지는 사고 방지.
+  if (
+    typeof raw !== 'object' ||
+    raw === null ||
+    typeof raw.contractName !== 'string' ||
+    typeof raw.sourceName !== 'string' ||
+    !Array.isArray(raw.abi)
+  ) {
+    throw new Error(
+      `[sync-abi] invalid artifact structure for ${name}: ` +
+        `expected {contractName: string, sourceName: string, abi: array}, ` +
+        `got keys=${Object.keys(raw || {}).join(',')} (${artifactPath})`,
+    );
+  }
+
   const minimal = {
     contractName: raw.contractName,
     sourceName: raw.sourceName,
