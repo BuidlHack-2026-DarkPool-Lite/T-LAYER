@@ -72,7 +72,7 @@ import escrow from '../../../packages/contracts-abi/DarkPoolEscrow.json';
 export const DARKPOOL_ESCROW_ABI = escrow.abi;
 ```
 
-> Vite에서 모노레포 외부 import를 허용하려면 `vite.config.ts`의 `server.fs.allow`에 `..`를 추가해야 할 수 있다 (step 7에서 처리).
+> Vite에서 모노레포 외부 import를 허용하려면 `vite.config.ts`의 `server.fs.allow`에 `..`를 추가해야 할 수 있다.
 
 ## 규칙
 
