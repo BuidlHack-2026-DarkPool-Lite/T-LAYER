@@ -111,12 +111,12 @@ export function useEscrow() {
    * 자동으로 알려준다.
    */
 
-  /** 온체인 주문 상태 조회 */
+  /** 온체인 주문 상태 조회 — write 함수들과 동일하게 미설정 시 fail-fast */
   const getOrderState = useCallback(
     async (orderId: string) => {
-      if (!escrowAddress) return null;
+      if (!escrowAddress) throw new Error('ESCROW_ADDRESS not configured');
       const publicClient = getPublicClient(wagmiConfig, { chainId: bscTestnet.id });
-      if (!publicClient) return null;
+      if (!publicClient) throw new Error('public client unavailable');
       const [trader, token, totalAmount, filledAmount, active] = await publicClient.readContract(
         // @ts-expect-error viem 2.47 EIP-7702 union: authorizationList 강제 요구 quirk
         {
@@ -131,12 +131,12 @@ export function useEscrow() {
     [escrowAddress],
   );
 
-  /** 미체결 잔량 조회 */
+  /** 미체결 잔량 조회 — '0n'은 진짜 잔량 0과 미설정을 구분 못하므로 fail-fast */
   const getOrderRemaining = useCallback(
     async (orderId: string): Promise<bigint> => {
-      if (!escrowAddress) return 0n;
+      if (!escrowAddress) throw new Error('ESCROW_ADDRESS not configured');
       const publicClient = getPublicClient(wagmiConfig, { chainId: bscTestnet.id });
-      if (!publicClient) return 0n;
+      if (!publicClient) throw new Error('public client unavailable');
       return publicClient.readContract(
         // @ts-expect-error viem 2.47 EIP-7702 union: authorizationList 강제 요구 quirk
         {
