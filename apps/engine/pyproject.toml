@@ -1,0 +1,34 @@
+[project]
+name = "darkpool-lite-engine"
+version = "0.1.0"
+description = "TEE 기반 프라이버시 OTC 매칭 엔진 — BuidlHack 2026"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.115,<1.0",
+    "uvicorn[standard]>=0.34,<1.0",
+    "pydantic>=2.7,<3.0",
+    "web3>=7.0,<8.0",
+    "httpx>=0.27,<1.0",
+    "openai>=1.30,<2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0,<9.0",
+    "pytest-asyncio>=0.23,<1.0",
+    "ruff>=0.11,<1.0",
+]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"src/matching/prompt.py" = ["E501"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
