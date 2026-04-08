@@ -1,19 +1,14 @@
-/** 최소 컨트랙트 ABI — ethers v6 human-readable 포맷 */
+/** 컨트랙트 ABI — DarkPoolEscrow는 단일 진실원의 const TS export, ERC20은 viem 표준. */
 
-export const ERC20_ABI = [
-  'function approve(address spender, uint256 amount) returns (bool)',
-  'function allowance(address owner, address spender) view returns (uint256)',
-  'function balanceOf(address account) view returns (uint256)',
-  'function decimals() view returns (uint8)',
-  'function symbol() view returns (string)',
-];
+import { erc20Abi } from 'viem';
 
-export const ESCROW_ABI = [
-  'function deposit(bytes32 orderId, address token, uint256 amount)',
-  'function cancelOrder(bytes32 orderId)',
-  'function orders(bytes32) view returns (address trader, address token, uint256 totalAmount, uint256 filledAmount, bool active)',
-  'function getOrderRemaining(bytes32 orderId) view returns (uint256)',
-  'event Deposited(bytes32 indexed orderId, address indexed trader, address token, uint256 amount)',
-  'event SwapExecuted(bytes32 indexed swapId, bytes32 indexed makerOrderId, bytes32 indexed takerOrderId, uint256 makerFillAmount, uint256 takerFillAmount)',
-  'event Cancelled(bytes32 indexed orderId, address indexed trader, uint256 refundAmount)',
-];
+// tools/sync-abi.mjs가 hardhat 컴파일 후 생성하는 const-narrowed TS 파일.
+// JSON import는 string literal을 widening해서 wagmi v3 functionName 추론을
+// 깨므로 frontend는 .json 대신 .ts 쪽을 import한다 (engine은 .json 사용).
+import { DARKPOOLESCROW_ABI } from '../../../packages/contracts-abi/DarkPoolEscrow';
+
+/** DarkPoolEscrow 전체 ABI. */
+export const ESCROW_ABI = DARKPOOLESCROW_ABI;
+
+/** ERC20 표준 ABI — viem 제공. */
+export const ERC20_ABI = erc20Abi;
