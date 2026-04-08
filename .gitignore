@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Hardhat
+apps/contracts/artifacts/
+apps/contracts/cache/
+apps/contracts/typechain-types/
+apps/contracts/coverage/
+apps/contracts/coverage.json
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+.claude/
+
+# CLAUDE.md (개인 컨텍스트 — 어디 위치하든 추적 안 함)
+CLAUDE.md

@@ -1,0 +1,185 @@
+"""TEE attestation 검증 테스트."""
+
+import base64
+import json
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
+from src.attestation.verifier import (
+    decode_nvidia_jwt_payload,
+    extract_nvidia_payloads,
+    extract_signing_addresses,
+    verify_attestation,
+)
+
+SAMPLE_REPORT = {
+    "model_attestations": [
+        {
+            "signing_address": "0xABCD1234",
+            "nvidia_payload": '{"evidence": "test"}',
+        },
+        {
+            "signing_address": "0xEFGH5678",
+            "nvidia_payload": '{"evidence": "test2"}',
+        },
+    ]
+}
+
+SAMPLE_REPORT_NO_NVIDIA = {
+    "model_attestations": [
+        {"signing_address": "0xABCD1234"},
+    ]
+}
+
+
+def _make_jwt(payload: dict) -> str:
+    header = base64.urlsafe_b64encode(json.dumps({"alg": "none"}).encode()).rstrip(b"=")
+    body = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=")
+    return f"{header.decode()}.{body.decode()}.signature"
+
+
+class TestExtractSigningAddresses:
+    def test_extracts_unique_addresses(self):
+        addresses = extract_signing_addresses(SAMPLE_REPORT)
+        assert addresses == ["0xABCD1234", "0xEFGH5678"]
+
+    def test_empty_report(self):
+        assert extract_signing_addresses({}) == []
+
+    def test_deduplicates(self):
+        report = {
+            "model_attestations": [
+                {"signing_address": "0xAAA"},
+                {"signing_address": "0xAAA"},
+            ]
+        }
+        assert extract_signing_addresses(report) == ["0xAAA"]
+
+
+class TestExtractNvidiaPayloads:
+    def test_extracts_payloads(self):
+        payloads = extract_nvidia_payloads(SAMPLE_REPORT)
+        assert len(payloads) == 2
+
+    def test_no_nvidia_payloads(self):
+        assert extract_nvidia_payloads(SAMPLE_REPORT_NO_NVIDIA) == []
+
+
+class TestDecodeNvidiaJwt:
+    def test_decode_valid_jwt(self):
+        jwt = _make_jwt({"x-nvidia-overall-att-result": True, "sub": "test"})
+        payload = decode_nvidia_jwt_payload(jwt)
+        assert payload is not None
+        assert payload["x-nvidia-overall-att-result"] is True
+
+    def test_decode_invalid_jwt(self):
+        assert decode_nvidia_jwt_payload("not.a.valid.jwt.token") is None
+
+    def test_decode_empty(self):
+        assert decode_nvidia_jwt_payload("") is None
+
+
+class TestVerifyAttestation:
+    @pytest.mark.asyncio
+    async def test_full_success(self):
+        jwt = _make_jwt({"x-nvidia-overall-att-result": True})
+        nvidia_resp = {"eat_token": jwt}
+
+        with (
+            patch(
+                "src.attestation.verifier.fetch_attestation_report",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_REPORT,
+            ),
+            patch(
+                "src.attestation.verifier.verify_gpu_attestation",
+                new_callable=AsyncMock,
+                return_value=nvidia_resp,
+            ),
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is True
+        assert result.signing_addresses == ["0xABCD1234", "0xEFGH5678"]
+        assert result.gpu_verified is True
+        assert len(result.gpu_results) == 2
+
+    @pytest.mark.asyncio
+    async def test_report_fetch_failure(self):
+        with patch(
+            "src.attestation.verifier.fetch_attestation_report",
+            new_callable=AsyncMock,
+            return_value=None,
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is False
+        assert "조회 실패" in result.error
+
+    @pytest.mark.asyncio
+    async def test_no_signing_addresses(self):
+        with patch(
+            "src.attestation.verifier.fetch_attestation_report",
+            new_callable=AsyncMock,
+            return_value={"model_attestations": []},
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is False
+        assert "signing address" in result.error
+
+    @pytest.mark.asyncio
+    async def test_no_nvidia_payloads_still_succeeds(self):
+        with patch(
+            "src.attestation.verifier.fetch_attestation_report",
+            new_callable=AsyncMock,
+            return_value=SAMPLE_REPORT_NO_NVIDIA,
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is True
+        assert result.gpu_verified is False
+        assert result.gpu_results == []
+
+    @pytest.mark.asyncio
+    async def test_nvidia_verification_failure(self):
+        with (
+            patch(
+                "src.attestation.verifier.fetch_attestation_report",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_REPORT,
+            ),
+            patch(
+                "src.attestation.verifier.verify_gpu_attestation",
+                new_callable=AsyncMock,
+                return_value=None,
+            ),
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is True
+        assert result.gpu_verified is False
+        assert all(not r["passed"] for r in result.gpu_results)
+
+    @pytest.mark.asyncio
+    async def test_gpu_attestation_fails(self):
+        jwt = _make_jwt({"x-nvidia-overall-att-result": False})
+        nvidia_resp = {"eat_token": jwt}
+
+        with (
+            patch(
+                "src.attestation.verifier.fetch_attestation_report",
+                new_callable=AsyncMock,
+                return_value=SAMPLE_REPORT,
+            ),
+            patch(
+                "src.attestation.verifier.verify_gpu_attestation",
+                new_callable=AsyncMock,
+                return_value=nvidia_resp,
+            ),
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is True
+        assert result.gpu_verified is False
