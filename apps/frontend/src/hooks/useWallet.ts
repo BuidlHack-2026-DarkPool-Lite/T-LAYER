@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { ethers } from 'ethers';
+import { useCallback } from 'react';
+import { useAccount, useChainId, useConnect, useConnectors, useDisconnect, useSwitchChain } from 'wagmi';
+import { bscTestnet } from 'wagmi/chains';
 import { BSC_TESTNET } from '../config';
 
 interface WalletState {
@@ -7,134 +8,51 @@ interface WalletState {
   isConnected: boolean;
   chainId: number | null;
   isCorrectChain: boolean;
-  provider: ethers.BrowserProvider | null;
-  signer: ethers.JsonRpcSigner | null;
   connect: () => Promise<void>;
   disconnect: () => void;
   switchToTestnet: () => Promise<void>;
 }
 
+/**
+ * 지갑 연결/체인 상태를 wagmi 훅 위에서 얇게 감싼 어댑터.
+ *
+ * 기존 ethers 기반 useWallet의 공개 인터페이스(`provider`/`signer` 제외)를
+ * 그대로 보존해서 App.tsx 변경 면적을 최소화한다. 컨트랙트 호출은 별도의
+ * useEscrow 훅이 wagmi config로부터 wallet client를 직접 얻어 처리한다.
+ */
 export function useWallet(): WalletState {
-  const [address, setAddress] = useState<string | null>(null);
-  const [chainId, setChainId] = useState<number | null>(null);
-  const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
-  const [signer, setSigner] = useState<ethers.JsonRpcSigner | null>(null);
-
-  const isConnected = !!address;
+  const { address, isConnected } = useAccount();
+  const chainId = useChainId();
   const isCorrectChain = chainId === BSC_TESTNET.chainId;
 
-  const setupProvider = useCallback(async () => {
-    if (!window.ethereum) return;
-    const p = new ethers.BrowserProvider(window.ethereum);
-    setProvider(p);
-
-    try {
-      const network = await p.getNetwork();
-      setChainId(Number(network.chainId));
-    } catch {
-      // ignore
-    }
-
-    const accounts: string[] = await window.ethereum.request({ method: 'eth_accounts' });
-    if (accounts.length > 0) {
-      setAddress(accounts[0]);
-      const s = await p.getSigner();
-      setSigner(s);
-    }
-  }, []);
-
-  useEffect(() => {
-    setupProvider();
-
-    if (!window.ethereum) return;
-
-    const handleAccountsChanged = (accounts: string[]) => {
-      if (accounts.length === 0) {
-        setAddress(null);
-        setSigner(null);
-      } else {
-        setAddress(accounts[0]);
-        setupProvider();
-      }
-    };
-
-    const handleChainChanged = () => {
-      // 체인 변경 시 provider 재설정
-      setupProvider();
-    };
-
-    window.ethereum.on('accountsChanged', handleAccountsChanged);
-    window.ethereum.on('chainChanged', handleChainChanged);
-
-    return () => {
-      window.ethereum?.removeListener('accountsChanged', handleAccountsChanged);
-      window.ethereum?.removeListener('chainChanged', handleChainChanged);
-    };
-  }, [setupProvider]);
+  const connectors = useConnectors();
+  const { connectAsync } = useConnect();
+  const { disconnect: wagmiDisconnect } = useDisconnect();
+  const { switchChainAsync } = useSwitchChain();
 
   const connect = useCallback(async () => {
-    if (!window.ethereum) {
+    // 첫 번째 injected 커넥터 사용 (config에 injected()만 등록되어 있음).
+    const injected = connectors[0];
+    if (!injected) {
       window.open('https://metamask.io/download/', '_blank');
       return;
     }
-
-    const accounts: string[] = await window.ethereum.request({
-      method: 'eth_requestAccounts',
-    });
-
-    if (accounts.length > 0) {
-      const p = new ethers.BrowserProvider(window.ethereum);
-      const s = await p.getSigner();
-      const network = await p.getNetwork();
-
-      setProvider(p);
-      setSigner(s);
-      setAddress(accounts[0]);
-      setChainId(Number(network.chainId));
-    }
-  }, []);
+    await connectAsync({ connector: injected });
+  }, [connectors, connectAsync]);
 
   const disconnect = useCallback(() => {
-    setAddress(null);
-    setSigner(null);
-    setProvider(null);
-    setChainId(null);
-  }, []);
+    wagmiDisconnect();
+  }, [wagmiDisconnect]);
 
   const switchToTestnet = useCallback(async () => {
-    if (!window.ethereum) return;
-
-    try {
-      await window.ethereum.request({
-        method: 'wallet_switchEthereumChain',
-        params: [{ chainId: BSC_TESTNET.chainIdHex }],
-      });
-    } catch (err: any) {
-      // 4902 = chain not added
-      if (err.code === 4902) {
-        await window.ethereum.request({
-          method: 'wallet_addEthereumChain',
-          params: [
-            {
-              chainId: BSC_TESTNET.chainIdHex,
-              chainName: BSC_TESTNET.name,
-              nativeCurrency: BSC_TESTNET.currency,
-              rpcUrls: [BSC_TESTNET.rpcUrl],
-              blockExplorerUrls: [BSC_TESTNET.blockExplorer],
-            },
-          ],
-        });
-      }
-    }
-  }, []);
+    await switchChainAsync({ chainId: bscTestnet.id });
+  }, [switchChainAsync]);
 
   return {
-    address,
+    address: address ?? null,
     isConnected,
-    chainId,
+    chainId: chainId ?? null,
     isCorrectChain,
-    provider,
-    signer,
     connect,
     disconnect,
     switchToTestnet,
