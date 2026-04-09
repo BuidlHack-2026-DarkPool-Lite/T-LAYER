@@ -1,0 +1,45 @@
+# DarkPool Lite — AI Market Maker (Track A: testnet demo)
+# 비활성화하려면 enabled: false
+
+mm_bot:
+  enabled: false
+  pairs:
+    - base: BNB
+      quote: USDT
+      token_pair: "BNB/USDT"
+      initial_inventory_base: 1000
+      initial_inventory_quote: 300000
+
+  pricing:
+    sources:
+      - name: pancakeswap_v3
+        weight: 0.6
+      - name: binance_spot
+        weight: 0.4
+    polling_interval_sec: 5
+    outlier_threshold_pct: 2.0
+
+  spread:
+    base_bps: 30
+    min_bps: 10
+    max_bps: 200
+    vol_window_sec: 60
+    vol_multiplier_max: 3.0
+
+  risk:
+    max_exposure_pct: 70
+    rebalance_threshold_pct: 60
+    price_shock_pct: 5.0
+    price_shock_window_sec: 60
+    min_inventory_pct: 5.0
+
+  order:
+    default_size_base: 100
+    refresh_interval_sec: 5
+    price_refresh_threshold_pct: 0.05
+
+  onchain:
+    # BSC Testnet 기본 — Track B / mainnet은 환경변수로 전환
+    base_token: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+    quote_token: "0x55d398326f99059fF775485246999027B3197955"
+    gas_price_gwei: 10

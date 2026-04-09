@@ -6,10 +6,9 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
 
-from src.matching.engine import MatchingEngine
+from src.matching.runner import run_matching_cycle
 from src.models import Order, OrderBook
 from src.schemas import OrderCreateRequest, OrderResponse
-from src.signer.pipeline import process_match_results
 from src.ws import ConnectionManager
 
 logger = logging.getLogger(__name__)
@@ -36,38 +35,6 @@ def _order_to_response(order: Order) -> OrderResponse:
     )
 
 
-async def _run_matching_cycle(
-    orderbook: OrderBook,
-    token_pair: str,
-    ws_manager: ConnectionManager,
-) -> None:
-    """백그라운드 매칭 사이클: 매칭 → 서명 → 제출 → WS 알림."""
-    try:
-        engine = MatchingEngine(orderbook)
-        results = await engine.run_matching_cycle(token_pair)
-        if not results:
-            return
-
-        # 서명 + BSC 제출
-        outcomes = await asyncio.to_thread(process_match_results, results)
-
-        # WS 체결 알림
-        await ws_manager.broadcast({"action": "matched", "results": outcomes})
-
-        # 서명/제출 결과 로깅
-        submitted = [o for o in outcomes if o.get("tx_hash")]
-        if submitted:
-            logger.info(
-                "매칭 사이클 완료: %d건 체결, %d건 BSC 제출",
-                len(results),
-                len(submitted),
-            )
-        else:
-            logger.info("매칭 사이클 완료: %d건 체결 (BSC 미설정)", len(results))
-    except Exception:
-        logger.exception("매칭 사이클 실패: token_pair=%s", token_pair)
-
-
 @router.post("/order", response_model=OrderResponse, status_code=201)
 async def create_order(body: OrderCreateRequest, request: Request) -> OrderResponse:
     """주문 생성. order_id는 서버에서 uuid4로 생성. 생성 후 매칭 사이클 자동 실행."""
@@ -89,9 +56,9 @@ async def create_order(body: OrderCreateRequest, request: Request) -> OrderRespo
     except Exception:
         logger.exception("broadcast 실패 (created, order_id=%s)", order_id)
 
-    # 백그라운드 매칭 사이클 실행 (태스크 추적)
+    mm_bot = getattr(request.app.state, "mm_bot", None)
     task = asyncio.create_task(
-        _run_matching_cycle(orderbook, body.token_pair, manager)
+        run_matching_cycle(orderbook, body.token_pair, manager, mm_bot=mm_bot)
     )
     bg_tasks: set = getattr(request.app.state, "background_tasks", None) or set()
     request.app.state.background_tasks = bg_tasks
