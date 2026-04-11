@@ -84,6 +84,7 @@ class MMBot:
         od = settings.order
         self._refresh_sec = float(od.get("refresh_interval_sec", 5))
         self._default_size = Decimal(str(od.get("default_size_base", 100)))
+        self._refresh_threshold_pct = float(od.get("price_refresh_threshold_pct", 0.05))
 
         oc = settings.onchain
         self._base_token = oc.base_token if oc else ""
@@ -110,6 +111,9 @@ class MMBot:
                     initial_quote=Decimal(str(p.initial_inventory_quote)),
                 ),
                 "last_mid": None,
+                "last_quoted_mid": None,
+                "prev_can_bid": None,
+                "prev_can_ask": None,
                 "active_buy": None,
                 "active_sell": None,
             }
@@ -181,6 +185,8 @@ class MMBot:
             risk.mark_feed_failed(True)
             async with self._lock:
                 await self._cancel_all_mm_orders(token_pair)
+            # 피드 복구 후에는 무조건 재주문이 필요하므로 threshold 기준점을 리셋
+            st["last_quoted_mid"] = None
             return
 
         risk.mark_feed_failed(False)
@@ -191,6 +197,7 @@ class MMBot:
         if not risk.can_quote(now):
             async with self._lock:
                 await self._cancel_all_mm_orders(token_pair)
+            st["last_quoted_mid"] = None
             return
 
         inv: InventoryState = st["inventory"]
@@ -202,8 +209,37 @@ class MMBot:
         can_bid = risk.can_quote_bid(inv, Decimal(str(mid)))
         can_ask = risk.can_quote_ask(inv, Decimal(str(mid)))
 
+        # 가격 변화가 threshold 이내이고 side 판정이 그대로면 재주문 생략 →
+        # 매 tick 마다 불필요한 cancel+deposit 체인으로 가스 낭비하지 않도록.
+        if self._should_skip_refresh(st, mid, can_bid, can_ask):
+            return
+
         async with self._lock:
             await self._refresh_quotes(token_pair, bid_px, ask_px, can_bid, can_ask)
+        st["last_quoted_mid"] = mid
+        st["prev_can_bid"] = can_bid
+        st["prev_can_ask"] = can_ask
+
+    def _should_skip_refresh(
+        self,
+        st: dict,
+        mid: float,
+        can_bid: bool,
+        can_ask: bool,
+    ) -> bool:
+        last = st.get("last_quoted_mid")
+        if last is None:
+            return False
+        if st.get("prev_can_bid") != can_bid or st.get("prev_can_ask") != can_ask:
+            return False
+        try:
+            prev = float(last)
+        except (TypeError, ValueError):
+            return False
+        if prev <= 0:
+            return False
+        change_pct = abs(mid - prev) / prev * 100.0
+        return change_pct < self._refresh_threshold_pct
 
     async def _cancel_all_mm_orders(self, token_pair: str) -> None:
         st = self._pair_states[token_pair]
