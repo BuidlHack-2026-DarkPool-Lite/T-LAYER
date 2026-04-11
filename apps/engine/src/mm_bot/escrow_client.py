@@ -70,7 +70,16 @@ class MMEscrowClient:
     def address(self) -> str | None:
         if not self._pk:
             return None
-        return Account.from_key(self._pk).address
+        # eth_account 는 malformed key 에 ValueError/binascii.Error 등 다양한
+        # 예외를 내므로 포괄 방어. 오타 하나로 엔진 부팅이 실패하면 안 된다.
+        try:
+            return Account.from_key(self._pk).address
+        except Exception as e:
+            logger.error(
+                "MM_BOT_PRIVATE_KEY 가 malformed — 지갑 주소 복원 실패: %s",
+                e,
+            )
+            return None
 
     def _w3(self) -> Web3:
         return Web3(
