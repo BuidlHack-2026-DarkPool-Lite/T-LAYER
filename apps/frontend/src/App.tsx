@@ -318,8 +318,18 @@ export default function App() {
 
   // ─── Order Submission ──────────────────────────────────────────────────────
 
+  // 주문 입력 유효성 — handleOrderSubmit 와 submit 버튼 disabled 가 공유.
+  // "0", "-1", "abc" 같은 값은 truthy 문자열이라 !amount 로는 못 거른다.
+  const numericAmount = Number(amount);
+  const numericPrice = Number(price);
+  const isOrderInputValid =
+    Number.isFinite(numericAmount) &&
+    numericAmount > 0 &&
+    Number.isFinite(numericPrice) &&
+    numericPrice > 0;
+
   const handleOrderSubmit = () => {
-    if (!amount || !price) return;
+    if (!isOrderInputValid) return;
     if (!wallet.isConnected || !wallet.isCorrectChain) return;
     setFlowError(null);
     setFlowState('confirm');
@@ -864,9 +874,9 @@ export default function App() {
                 {/* Submit Button */}
                 <button
                   onClick={handleOrderSubmit}
-                  disabled={!isWalletReady || !amount || !price}
+                  disabled={!isWalletReady || !isOrderInputValid}
                   className={`w-full py-4 rounded-lg font-bold text-sm transition-all ${
-                    (!isWalletReady || !amount || !price)
+                    (!isWalletReady || !isOrderInputValid)
                       ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                       : orderSide === 'buy'
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.15)]'
