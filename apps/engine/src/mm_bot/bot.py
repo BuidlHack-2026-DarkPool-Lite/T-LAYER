@@ -64,25 +64,21 @@ class MMBot:
         )
 
         sp = settings.spread
-        self._spread_calc = SpreadCalculator(
-            SpreadConfig(
-                base_bps=float(sp.get("base_bps", 30)),
-                min_bps=float(sp.get("min_bps", 10)),
-                max_bps=float(sp.get("max_bps", 200)),
-                vol_window_sec=float(sp.get("vol_window_sec", 60)),
-                vol_multiplier_max=float(sp.get("vol_multiplier_max", 3.0)),
-            )
+        self._spread_cfg = SpreadConfig(
+            base_bps=float(sp.get("base_bps", 30)),
+            min_bps=float(sp.get("min_bps", 10)),
+            max_bps=float(sp.get("max_bps", 200)),
+            vol_window_sec=float(sp.get("vol_window_sec", 60)),
+            vol_multiplier_max=float(sp.get("vol_multiplier_max", 3.0)),
         )
 
         rk = settings.risk
-        self._risk = RiskController(
-            RiskConfig(
-                max_exposure_pct=float(rk.get("max_exposure_pct", 70)),
-                rebalance_threshold_pct=float(rk.get("rebalance_threshold_pct", 60)),
-                price_shock_pct=float(rk.get("price_shock_pct", 5.0)),
-                price_shock_window_sec=float(rk.get("price_shock_window_sec", 60)),
-                min_inventory_pct=float(rk.get("min_inventory_pct", 5.0)),
-            )
+        self._risk_cfg = RiskConfig(
+            max_exposure_pct=float(rk.get("max_exposure_pct", 70)),
+            rebalance_threshold_pct=float(rk.get("rebalance_threshold_pct", 60)),
+            price_shock_pct=float(rk.get("price_shock_pct", 5.0)),
+            price_shock_window_sec=float(rk.get("price_shock_window_sec", 60)),
+            min_inventory_pct=float(rk.get("min_inventory_pct", 5.0)),
         )
 
         od = settings.order
@@ -100,8 +96,14 @@ class MMBot:
         self._wallet = self._escrow.address or ""
         self._wallet_lower = self._wallet.lower()
 
+        # SpreadCalculator/RiskController 는 mutable history 를 pair 별로
+        # 들고 있어야 한다 (BNB/USDT 의 변동성이 ETH/USDT 와 섞이면 안 됨).
+        self._spread_calc_by_pair: dict[str, SpreadCalculator] = {}
+        self._risk_by_pair: dict[str, RiskController] = {}
         self._pair_states: dict[str, dict] = {}
         for p in settings.pairs:
+            self._spread_calc_by_pair[p.token_pair] = SpreadCalculator(self._spread_cfg)
+            self._risk_by_pair[p.token_pair] = RiskController(self._risk_cfg)
             self._pair_states[p.token_pair] = {
                 "inventory": InventoryState(
                     initial_base=Decimal(str(p.initial_inventory_base)),
@@ -169,33 +171,36 @@ class MMBot:
         if st is None:
             return
 
+        spread_calc = self._spread_calc_by_pair[token_pair]
+        risk = self._risk_by_pair[token_pair]
+
         res = await self._price_feed.get_mid_price(token_pair)
         now = wall_time()
 
         if res.mid is None:
-            self._risk.mark_feed_failed(True)
+            risk.mark_feed_failed(True)
             async with self._lock:
                 await self._cancel_all_mm_orders(token_pair)
             return
 
-        self._risk.mark_feed_failed(False)
+        risk.mark_feed_failed(False)
         mid = res.mid
-        self._risk.record_price(now, mid)
-        self._spread_calc.record_mid(now, mid)
+        risk.record_price(now, mid)
+        spread_calc.record_mid(now, mid)
 
-        if not self._risk.can_quote(now):
+        if not risk.can_quote(now):
             async with self._lock:
                 await self._cancel_all_mm_orders(token_pair)
             return
 
         inv: InventoryState = st["inventory"]
-        spread_bps = self._spread_calc.effective_spread_bps()
+        spread_bps = spread_calc.effective_spread_bps()
         bid_px, ask_px = bid_ask_prices(mid, spread_bps)
 
         st["last_mid"] = mid
 
-        can_bid = self._risk.can_quote_bid(inv, Decimal(str(mid)))
-        can_ask = self._risk.can_quote_ask(inv, Decimal(str(mid)))
+        can_bid = risk.can_quote_bid(inv, Decimal(str(mid)))
+        can_ask = risk.can_quote_ask(inv, Decimal(str(mid)))
 
         async with self._lock:
             await self._refresh_quotes(token_pair, bid_px, ask_px, can_bid, can_ask)
