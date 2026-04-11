@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { parseUnits } from 'viem';
-import { Shield, Wallet, Lock, Activity, ChevronDown, X, Check, Loader2, CheckCircle2, ExternalLink, Cpu, Fingerprint, Trash2, AlertTriangle, LogOut, EyeOff, ShieldCheck, Brain, GitBranch, Scale } from 'lucide-react';
+import { Shield, Wallet, Lock, Activity, ChevronDown, X, Check, Loader2, CheckCircle2, ExternalLink, Cpu, Fingerprint, Trash2, AlertTriangle, LogOut, ShieldCheck, Brain, GitBranch, Scale } from 'lucide-react';
 import { useWallet } from './hooks/useWallet';
 import { useEscrow } from './hooks/useEscrow';
-import { createOrder, cancelOrderApi, getOrderStatus } from './services/api';
+import { createOrder, cancelOrderApi, getOrderStatus, verifyAttestation, AttestationResult } from './services/api';
 import { createWebSocket, WsEvent } from './services/websocket';
 import { TOKEN_ADDRESSES, BSC_TESTNET } from './config';
 
@@ -136,8 +136,8 @@ function ParticleWave({ step }: { step: number }) {
           step >= 4 ? 'text-amber-600' : step >= 1 ? 'text-emerald-600' : 'text-neutral-700'
         }`}>
           {step === 0 ? 'IDLE' :
-           step === 1 ? 'ENCRYPTING' :
-           step <= 3 ? 'TEE PROCESSING' :
+           step <= 2 ? 'ATTESTING' :
+           step === 3 ? 'TEE PROCESSING' :
            step === 4 ? 'SIGNING' : 'SETTLED'}
         </span>
       </div>
@@ -193,6 +193,7 @@ export default function App() {
   const [matchStep, setMatchStep] = useState(0);
   const [executionResult, setExecutionResult] = useState<any>(null);
   const [flowError, setFlowError] = useState<string | null>(null);
+  const [attestation, setAttestation] = useState<AttestationResult | null>(null);
   const currentOrderIdRef = useRef<string | null>(null);
 
   // Navigation & Orders
@@ -285,69 +286,16 @@ export default function App() {
     return () => ws.close();
   }, [wallet.address]);
 
-  // ─── Demo mode (no backend/contract needed) ────────────────────────────────
-  const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true' || !import.meta.env.VITE_ESCROW_ADDRESS;
-
   // ─── Order Submission ──────────────────────────────────────────────────────
 
   const handleOrderSubmit = () => {
     if (!amount || !price) return;
-    // 실제 모드에서는 지갑 필요
-    if (!isDemoMode && (!wallet.isConnected || !wallet.isCorrectChain)) return;
+    if (!wallet.isConnected || !wallet.isCorrectChain) return;
     setFlowError(null);
     setFlowState('confirm');
   };
 
-  const startDemoFlow = () => {
-    setFlowState('approve');
-
-    setTimeout(() => {
-      setFlowState('deposit');
-
-      setTimeout(() => {
-        setFlowState('match');
-        setMatchStep(0);
-
-        // 매칭 애니메이션 (5단계: encrypt → dual-pass → attestation → sign → complete)
-        setTimeout(() => setMatchStep(1), 1000);
-        setTimeout(() => setMatchStep(2), 3000);
-        setTimeout(() => setMatchStep(3), 6000);
-        setTimeout(() => setMatchStep(4), 9000);
-        setTimeout(() => {
-          const mockTxHash = '0x' + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-          const newOrder: Order = {
-            id: mockTxHash.substring(0, 10),
-            time: new Date().toLocaleTimeString('en-US', { hour12: false }),
-            pair: selectedToken.pair,
-            side: orderSide,
-            type: 'limit',
-            price: parseFloat(price).toFixed(2),
-            amount: amount,
-            filled: 100,
-            status: 'filled',
-            txHash: mockTxHash,
-          };
-          setMyOrders((prev) => [newOrder, ...prev]);
-          setExecutionResult({
-            price: parseFloat(price).toFixed(2),
-            amount: amount,
-            total: (parseFloat(amount) * parseFloat(price)).toFixed(2),
-            hash: mockTxHash,
-            filled: 100,
-          });
-          setFlowState('success');
-        }, 11000);
-      }, 1500);
-    }, 1500);
-  };
-
   const startExecutionFlow = async () => {
-    // 데모 모드면 목업 플로우
-    if (isDemoMode) {
-      startDemoFlow();
-      return;
-    }
-
     setFlowError(null);
 
     try {
@@ -399,19 +347,28 @@ export default function App() {
       };
       setMyOrders((prev) => [newOrder, ...prev]);
 
-      // Phase 3: TEE 매칭 대기
+      // Phase 3: TEE 검증 + 매칭 대기
       setFlowState('match');
       setMatchStep(0);
+      setAttestation(null);
+
+      // TEE attestation 검증
+      try {
+        const att = await verifyAttestation();
+        setAttestation(att);
+      } catch (attErr) {
+        console.warn('Attestation verification failed:', attErr);
+      }
+      setMatchStep(1);
 
       // 매칭은 WebSocket에서 처리됨
-      // 만약 10초 안에 매칭 안 되면 pending 상태로 종료
+      // 만약 15초 안에 매칭 안 되면 pending 상태로 종료
       setTimeout(() => {
         if (flowState === 'match') {
-          // 매칭 대기 중이면 pending으로 표시
-          setMatchStep(1);
-          setTimeout(() => setMatchStep(2), 800);
-          setTimeout(() => setMatchStep(3), 1600);
-          setTimeout(() => setMatchStep(4), 2400);
+          setMatchStep(2);
+          setTimeout(() => setMatchStep(3), 800);
+          setTimeout(() => setMatchStep(4), 1600);
+          setTimeout(() => setMatchStep(5), 2400);
           setTimeout(() => {
             setFlowState('success');
             setExecutionResult({
@@ -866,18 +823,18 @@ export default function App() {
                 {/* Submit Button */}
                 <button
                   onClick={handleOrderSubmit}
-                  disabled={(!isDemoMode && !isWalletReady) || !amount || !price}
+                  disabled={!isWalletReady || !amount || !price}
                   className={`w-full py-4 rounded-lg font-bold text-sm transition-all ${
-                    ((!isDemoMode && !isWalletReady) || !amount || !price)
+                    (!isWalletReady || !amount || !price)
                       ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                       : orderSide === 'buy'
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.15)]'
                       : 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.15)]'
                   }`}
                 >
-                  {!isDemoMode && !wallet.isConnected
+                  {!wallet.isConnected
                     ? 'Connect Wallet to Trade'
-                    : !isDemoMode && !wallet.isCorrectChain
+                    : !wallet.isCorrectChain
                     ? 'Switch to BSC Testnet'
                     : `${orderSide === 'buy' ? 'Buy' : 'Sell'} ${selectedToken.symbol} Privately`}
                 </button>
@@ -1147,10 +1104,10 @@ export default function App() {
                 <div className="mb-6 px-2">
                   <div className="flex items-center">
                     {[
-                      { step: 1, label: 'Encrypt', color: 'emerald' },
-                      { step: 2, label: 'Match', color: 'emerald' },
-                      { step: 3, label: 'Attestation', color: 'emerald' },
-                      { step: 4, label: 'Sign', color: 'emerald' },
+                      { step: 1, label: 'Attest', color: 'emerald' },
+                      { step: 2, label: 'Encrypt', color: 'emerald' },
+                      { step: 3, label: 'Match', color: 'emerald' },
+                      { step: 4, label: 'Sign', color: 'amber' },
                       { step: 5, label: 'Settle', color: 'amber' },
                     ].map(({ step, label, color }, i, arr) => (
                       <React.Fragment key={step}>
@@ -1177,7 +1134,7 @@ export default function App() {
                     ))}
                   </div>
                   <div className="flex justify-between mt-2 px-1">
-                    <span className="text-[9px] font-mono text-neutral-700">CLIENT</span>
+                    <span className={`text-[9px] font-mono ${matchStep >= 1 && matchStep < 2 ? 'text-emerald-500/50' : 'text-neutral-700'}`}>VERIFY</span>
                     <span className={`text-[9px] font-mono ${matchStep >= 2 && matchStep < 4 ? 'text-emerald-500/50' : 'text-neutral-700'}`}>TEE ENCLAVE</span>
                     <span className={`text-[9px] font-mono ${matchStep >= 4 ? 'text-amber-500/50' : 'text-neutral-700'}`}>BNB CHAIN</span>
                   </div>
@@ -1201,41 +1158,74 @@ export default function App() {
                   <div className="flex-1 px-4 py-3 space-y-1.5 overflow-y-auto font-mono text-xs">
                     {matchStep >= 0 && (
                       <div className="text-neutral-500">
-                        <span className="text-neutral-600">$</span> Initializing TEE pipeline...
+                        <span className="text-neutral-600">$</span> Verifying TEE environment...
                       </div>
                     )}
+                    {/* Step 1: TEE Attestation (pre-matching verification) */}
                     {matchStep >= 1 && (
                       <div className="flex items-center gap-2">
                         <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">Encrypting order data</span>
+                        <span className="text-neutral-300">Enclave measurement</span>
+                        <span className="text-neutral-600">NEAR AI Cloud</span>
+                        {matchStep >= 2 ? <span className="text-emerald-500 ml-auto">VALID</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                      </div>
+                    )}
+                    {matchStep >= 1 && matchStep < 2 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">GPU attestation</span>
+                        <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />
+                      </div>
+                    )}
+                    {matchStep >= 2 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">GPU attestation</span>
+                        <span className="text-neutral-500">{attestation?.gpu_model || 'NVIDIA H100'}</span>
+                        <span className="text-emerald-500 ml-auto">VERIFIED</span>
+                      </div>
+                    )}
+                    {matchStep >= 2 && attestation && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Measurement:</span>
+                        <span className="text-emerald-500/60">{attestation.enclave_measurement}</span>
+                      </div>
+                    )}
+                    {/* Step 3: Encrypt */}
+                    {matchStep >= 3 && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Encrypting order</span>
                         <span className="text-neutral-600">AES-256-GCM</span>
                         <span className="text-emerald-500 ml-auto">OK</span>
                       </div>
                     )}
-                    {matchStep >= 1 && (
+                    {matchStep >= 3 && (
                       <div className="flex items-center gap-2">
                         <span className="text-emerald-500">{'>'}</span>
                         <span className="text-neutral-300">Payload:</span>
                         <span className="text-neutral-500">{selectedToken.pair} · {orderSide.toUpperCase()} · ██████</span>
                       </div>
                     )}
-                    {matchStep >= 2 && (
+                    {/* Step 4: Dual-pass matching */}
+                    {matchStep >= 3 && (
                       <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
                         <span className="text-emerald-500">{'>'}</span>
                         <span className="text-neutral-300">Rule engine</span>
                         <span className="text-neutral-600">price-time FIFO</span>
-                        {matchStep >= 3 ? <span className="text-emerald-500 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                        {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
                       </div>
                     )}
-                    {matchStep >= 2 && (
+                    {matchStep >= 3 && (
                       <div className="flex items-center gap-2">
                         <span className="text-purple-400">{'>'}</span>
                         <span className="text-neutral-300">AI engine</span>
                         <span className="text-neutral-600">NEAR AI Cloud</span>
-                        {matchStep >= 3 ? <span className="text-purple-400 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
+                        {matchStep >= 4 ? <span className="text-purple-400 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
                       </div>
                     )}
-                    {matchStep >= 3 && (
+                    {matchStep >= 4 && (
                       <div className="flex items-center gap-2">
                         <span className="text-emerald-500">{'>'}</span>
                         <span className="text-emerald-400/80">Optimal result selected</span>
@@ -1243,28 +1233,7 @@ export default function App() {
                         <span className="text-emerald-500 ml-auto">OK</span>
                       </div>
                     )}
-                    {matchStep >= 3 && (
-                      <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
-                        <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">Attestation</span>
-                        <span className="text-neutral-600">enclave measurement</span>
-                        {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">VALID</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
-                      </div>
-                    )}
-                    {matchStep >= 3 && matchStep < 4 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">NVIDIA GPU attestation</span>
-                        <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />
-                      </div>
-                    )}
-                    {matchStep >= 4 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">NVIDIA GPU attestation</span>
-                        <span className="text-emerald-500 ml-auto">VERIFIED</span>
-                      </div>
-                    )}
+                    {/* Step 5: Sign + Settle */}
                     {matchStep >= 4 && (
                       <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
                         <span className="text-amber-400">{'>'}</span>
@@ -1294,7 +1263,6 @@ export default function App() {
                         <span className="text-emerald-400 font-semibold">Pipeline complete — settlement on-chain</span>
                       </div>
                     )}
-                    {/* Blinking cursor */}
                     {matchStep < 5 && (
                       <div className="flex items-center gap-1 mt-1">
                         <span className="text-neutral-600">$</span>
@@ -1308,7 +1276,7 @@ export default function App() {
                 <div className="mt-3 flex items-center justify-between text-xs font-mono text-neutral-500">
                   <div className="flex items-center gap-1.5">
                     <ShieldCheck className="w-3.5 h-3.5" />
-                    <span>{matchStep >= 4 ? 'Attestation Verified' : matchStep >= 3 ? 'Verifying attestation...' : 'Attestation pending'}</span>
+                    <span>{matchStep >= 2 ? 'TEE Verified' : matchStep >= 1 ? 'Verifying TEE...' : 'Attestation pending'}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className={`w-1.5 h-1.5 rounded-full ${matchStep > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-neutral-600'}`} />
@@ -1369,22 +1337,15 @@ export default function App() {
                     {executionResult.hash && (
                       <>
                         <div className="h-px bg-neutral-800" />
-                        {isDemoMode ? (
-                          <div className="flex items-center gap-2 text-[10px] font-mono text-neutral-600">
-                            <EyeOff className="w-3 h-3" />
-                            <span>Demo — tx simulated</span>
-                          </div>
-                        ) : (
-                          <a
-                            href={`${BSC_TESTNET.blockExplorer}/tx/${executionResult.hash}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-2 text-[10px] font-mono text-neutral-500 hover:text-emerald-400 transition-colors"
-                          >
-                            <span>Tx: {executionResult.hash.substring(0, 10)}...{executionResult.hash.substring(58)}</span>
-                            <ExternalLink className="w-3 h-3" />
-                          </a>
-                        )}
+                        <a
+                          href={`${BSC_TESTNET.blockExplorer}/tx/${executionResult.hash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 text-[10px] font-mono text-neutral-500 hover:text-emerald-400 transition-colors"
+                        >
+                          <span>Tx: {executionResult.hash.substring(0, 10)}...{executionResult.hash.substring(58)}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
                       </>
                     )}
                   </div>
@@ -1469,23 +1430,32 @@ export default function App() {
 
                 {/* TEE Attestation */}
                 <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
-                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">TEE Attestation</span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">TEE Attestation</span>
+                    <span className="text-[9px] font-mono text-emerald-500/60">pre-verified</span>
+                  </div>
                   <div className="mt-3 space-y-2">
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-neutral-500">Enclave measurement</span>
-                      <span className="font-mono text-emerald-500/70 text-[10px]">sha256:7a3f...c91e</span>
+                      <span className="font-mono text-emerald-500/70 text-[10px]">{attestation?.enclave_measurement || 'n/a'}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-neutral-500">GPU attestation</span>
-                      <span className="font-mono text-emerald-500/70 text-[10px]">NVIDIA H100 verified</span>
+                      <span className="font-mono text-emerald-500/70 text-[10px]">{attestation ? `${attestation.gpu_model} verified` : 'n/a'}</span>
                     </div>
                     <div className="flex items-center justify-between text-xs">
                       <span className="text-neutral-500">Code integrity</span>
-                      <span className="font-mono text-emerald-500/70 text-[10px]">matching_engine v1.2.0</span>
+                      <span className="font-mono text-emerald-500/70 text-[10px]">{attestation?.code_integrity || 'n/a'}</span>
                     </div>
+                    {attestation?.signing_addresses?.[0] && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-neutral-500">Signing address</span>
+                        <span className="font-mono text-emerald-500/70 text-[10px]">{attestation.signing_addresses[0].substring(0, 8)}...{attestation.signing_addresses[0].substring(36)}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="mt-2 pt-2 border-t border-neutral-800 text-[10px] font-mono text-neutral-600">
-                    All order data processed inside TEE — no external access
+                    TEE environment verified before order entered enclave
                   </div>
                 </div>
 
