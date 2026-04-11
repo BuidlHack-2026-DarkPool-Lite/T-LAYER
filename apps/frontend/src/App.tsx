@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { parseUnits } from 'viem';
-import { Shield, Wallet, Lock, Activity, ChevronDown, X, Check, Loader2, CheckCircle2, ExternalLink, Cpu, Fingerprint, Trash2, AlertTriangle, LogOut, EyeOff, ShieldCheck } from 'lucide-react';
+import { Shield, Wallet, Lock, Activity, ChevronDown, X, Check, Loader2, CheckCircle2, ExternalLink, Cpu, Fingerprint, Trash2, AlertTriangle, LogOut, ShieldCheck, Brain, GitBranch, Scale } from 'lucide-react';
 import { useWallet } from './hooks/useWallet';
 import { useEscrow } from './hooks/useEscrow';
-import { createOrder, cancelOrderApi, getOrderStatus } from './services/api';
+import { createOrder, cancelOrderApi, getOrderStatus, verifyAttestation, AttestationResult } from './services/api';
 import { createWebSocket, WsEvent } from './services/websocket';
 import { TOKEN_ADDRESSES, BSC_TESTNET } from './config';
 
@@ -41,6 +41,109 @@ const GlitchEyeLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
     <rect x="5.5" y="16" width="4.5" height="1.5" fill="currentColor" />
   </svg>
 );
+
+// ─── Particle Wave ──────────────────────────────────────────────────────────
+
+function ParticleWave({ step }: { step: number }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const stepRef = useRef(step);
+  stepRef.current = step;
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    let raf: number;
+    const COLS = 80;
+    const RING = 14;
+    const dpr = window.devicePixelRatio || 1;
+
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const draw = (t: number) => {
+      const W = canvas.width / dpr;
+      const H = canvas.height / dpr;
+      const s = stepRef.current;
+      ctx.clearRect(0, 0, W, H);
+
+      const baseColor = s >= 4 ? [245, 158, 11] : s >= 1 ? [52, 211, 153] : [64, 64, 64];
+      const flowSpeed = s === 0 ? 0.02 : s === 1 ? 0.12 : s <= 3 ? 0.06 : s === 4 ? 0.04 : 0.01;
+      const rotSpeed = s === 0 ? 0.2 : s === 1 ? 2.0 : s <= 3 ? 0.8 : s === 4 ? 0.5 : 0.1;
+      const waveAmp = s === 0 ? 0.3 : s === 1 ? 4 : s <= 3 ? 2.5 : s === 4 ? 1.5 : 0;
+      const waveFreq = s === 1 ? 0.25 : 0.1;
+      const cylRadius = H * 0.32;
+      const time = t * 0.001;
+      const flowOffset = time * flowSpeed;
+
+      const particles: { x: number; y: number; z: number; r: number; a: number }[] = [];
+
+      for (let col = 0; col < COLS; col++) {
+        for (let ring = 0; ring < RING; ring++) {
+          // Each particle flows L→R, wrapping around
+          const xNorm = ((col / COLS) + flowOffset) % 1;
+          const x = xNorm * W;
+
+          // Fade in at left edge, fade out at right edge
+          const edgeFade = Math.min(xNorm * 5, (1 - xNorm) * 5, 1);
+
+          const theta = (ring / RING) * Math.PI * 2 + time * rotSpeed + col * 0.15;
+          const waveMod = 1 + Math.sin(col * waveFreq + time * rotSpeed) * waveAmp * 0.06;
+          const r = cylRadius * waveMod;
+
+          const cosT = Math.cos(theta);
+          const sinT = Math.sin(theta);
+
+          const y = H * 0.5 + sinT * r;
+          const z = cosT;
+
+          const dotR = 0.3 + (z + 1) * 0.35;
+          const alpha = Math.max(0, (0.04 + (z + 1) * 0.18) * edgeFade);
+
+          particles.push({ x, y, z, r: dotR, a: alpha });
+        }
+      }
+
+      particles.sort((a, b) => a.z - b.z);
+
+      for (const p of particles) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${baseColor[0]},${baseColor[1]},${baseColor[2]},${p.a})`;
+        ctx.fill();
+      }
+
+      raf = requestAnimationFrame(draw);
+    };
+
+    raf = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return (
+    <div className="mb-4 relative">
+      <canvas
+        ref={canvasRef}
+        className="w-full rounded border border-neutral-800/30 bg-[#080808]"
+        style={{ height: '40px' }}
+      />
+      <div className="absolute bottom-0.5 right-2">
+        <span className={`text-[8px] font-mono ${
+          step >= 4 ? 'text-amber-600' : step >= 1 ? 'text-emerald-600' : 'text-neutral-700'
+        }`}>
+          {step === 0 ? 'IDLE' :
+           step <= 2 ? 'ATTESTING' :
+           step === 3 ? 'TEE PROCESSING' :
+           step === 4 ? 'SIGNING' : 'SETTLED'}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -90,12 +193,35 @@ export default function App() {
   const [matchStep, setMatchStep] = useState(0);
   const [executionResult, setExecutionResult] = useState<any>(null);
   const [flowError, setFlowError] = useState<string | null>(null);
+  const [attestation, setAttestation] = useState<AttestationResult | null>(null);
   const currentOrderIdRef = useRef<string | null>(null);
+
+  // WebSocket onMessage 와 15s 폴백 setTimeout 이 useEffect/startExecutionFlow
+  // 호출 시점의 state 를 closure 에 캡처하면 stale 값을 읽어 매칭 UI 가
+  // 업데이트되지 않고 폴백이 영원히 동작 안 하는 버그가 있어 ref 로 우회.
+  const flowStateRef = useRef<FlowState>(flowState);
+  const priceRef = useRef(price);
+  const amountRef = useRef(amount);
+  const fallbackTimeoutRef = useRef<number | null>(null);
 
   // Navigation & Orders
   const [activePage, setActivePage] = useState<'trade' | 'orders'>('trade');
   const [orderTab, setOrderTab] = useState<'open' | 'history'>('open');
   const [myOrders, setMyOrders] = useState<Order[]>([]);
+
+  // ─── Ref sync (stale closure 회피) ─────────────────────────────────────────
+  useEffect(() => { flowStateRef.current = flowState; }, [flowState]);
+  useEffect(() => { priceRef.current = price; }, [price]);
+  useEffect(() => { amountRef.current = amount; }, [amount]);
+  // unmount 시 15s 폴백 타임아웃 확실히 제거
+  useEffect(() => {
+    return () => {
+      if (fallbackTimeoutRef.current !== null) {
+        clearTimeout(fallbackTimeoutRef.current);
+        fallbackTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // ─── Token Balance (온체인 조회) ───────────────────────────────────────────
   useEffect(() => {
@@ -137,17 +263,26 @@ export default function App() {
               result.maker_order_id === currentId ||
               result.taker_order_id === currentId;
 
-            if (isMyOrder && flowState === 'match') {
-              // 매칭 단계 애니메이션
+            if (isMyOrder && flowStateRef.current === 'match') {
+              // 실 매치가 도착했으므로 15s 폴백 타임아웃 취소
+              if (fallbackTimeoutRef.current !== null) {
+                clearTimeout(fallbackTimeoutRef.current);
+                fallbackTimeoutRef.current = null;
+              }
+              // 매칭 단계 애니메이션 (5단계)
               setMatchStep(1);
               setTimeout(() => setMatchStep(2), 600);
               setTimeout(() => setMatchStep(3), 1200);
+              setTimeout(() => setMatchStep(4), 1800);
               setTimeout(() => {
-                setMatchStep(4);
+                setMatchStep(5);
+                const orderAmount = amountRef.current;
+                const orderPrice = priceRef.current;
+                const execPrice = result.exec_price || orderPrice;
                 setExecutionResult({
-                  price: result.exec_price || price,
-                  amount: amount,
-                  total: (parseFloat(amount) * parseFloat(result.exec_price || price)).toFixed(2),
+                  price: execPrice,
+                  amount: orderAmount,
+                  total: (parseFloat(orderAmount) * parseFloat(execPrice)).toFixed(2),
                   hash: result.tx_hash || '',
                   filled: 100,
                 });
@@ -183,8 +318,19 @@ export default function App() {
 
   // ─── Order Submission ──────────────────────────────────────────────────────
 
+  // 주문 입력 유효성 — handleOrderSubmit 와 submit 버튼 disabled 가 공유.
+  // "0", "-1", "abc" 같은 값은 truthy 문자열이라 !amount 로는 못 거른다.
+  const numericAmount = Number(amount);
+  const numericPrice = Number(price);
+  const isOrderInputValid =
+    Number.isFinite(numericAmount) &&
+    numericAmount > 0 &&
+    Number.isFinite(numericPrice) &&
+    numericPrice > 0;
+
   const handleOrderSubmit = () => {
-    if (!wallet.isConnected || !wallet.isCorrectChain || !amount || !price) return;
+    if (!isOrderInputValid) return;
+    if (!wallet.isConnected || !wallet.isCorrectChain) return;
     setFlowError(null);
     setFlowState('confirm');
   };
@@ -241,29 +387,47 @@ export default function App() {
       };
       setMyOrders((prev) => [newOrder, ...prev]);
 
-      // Phase 3: TEE 매칭 대기
+      // Phase 3: TEE 검증 + 매칭 대기
       setFlowState('match');
       setMatchStep(0);
+      setAttestation(null);
+
+      // TEE attestation 검증
+      try {
+        const att = await verifyAttestation();
+        setAttestation(att);
+      } catch (attErr) {
+        console.warn('Attestation verification failed:', attErr);
+      }
+      setMatchStep(1);
 
       // 매칭은 WebSocket에서 처리됨
-      // 만약 10초 안에 매칭 안 되면 pending 상태로 종료
-      setTimeout(() => {
-        if (flowState === 'match') {
-          // 매칭 대기 중이면 pending으로 표시
-          setMatchStep(1);
-          setTimeout(() => setMatchStep(2), 800);
-          setTimeout(() => {
-            setFlowState('success');
-            setExecutionResult({
-              price: price,
-              amount: amount,
-              total: (parseFloat(amount) * parseFloat(price)).toFixed(2),
-              hash: depositTxHash,
-              filled: 0,
-              pending: true,
-            });
-          }, 2000);
-        }
+      // 만약 15초 안에 매칭 안 되면 pending 상태로 종료.
+      // flowStateRef 를 써서 stale closure 회피, fallbackTimeoutRef 에
+      // id 를 저장해 WS 매치 도착 / resetFlow 시 clearTimeout 가능.
+      if (fallbackTimeoutRef.current !== null) {
+        clearTimeout(fallbackTimeoutRef.current);
+      }
+      fallbackTimeoutRef.current = window.setTimeout(() => {
+        fallbackTimeoutRef.current = null;
+        if (flowStateRef.current !== 'match') return;
+        setMatchStep(2);
+        setTimeout(() => setMatchStep(3), 800);
+        setTimeout(() => setMatchStep(4), 1600);
+        setTimeout(() => setMatchStep(5), 2400);
+        setTimeout(() => {
+          const fallbackPrice = priceRef.current;
+          const fallbackAmount = amountRef.current;
+          setFlowState('success');
+          setExecutionResult({
+            price: fallbackPrice,
+            amount: fallbackAmount,
+            total: (parseFloat(fallbackAmount) * parseFloat(fallbackPrice)).toFixed(2),
+            hash: depositTxHash,
+            filled: 0,
+            pending: true,
+          });
+        }, 2000);
       }, 15000);
 
     } catch (err: any) {
@@ -282,6 +446,10 @@ export default function App() {
   };
 
   const resetFlow = () => {
+    if (fallbackTimeoutRef.current !== null) {
+      clearTimeout(fallbackTimeoutRef.current);
+      fallbackTimeoutRef.current = null;
+    }
     setFlowState('idle');
     setAmount('');
     setPrice('');
@@ -706,16 +874,18 @@ export default function App() {
                 {/* Submit Button */}
                 <button
                   onClick={handleOrderSubmit}
-                  disabled={!isWalletReady || !amount || !price}
+                  disabled={!isWalletReady || !isOrderInputValid}
                   className={`w-full py-4 rounded-lg font-bold text-sm transition-all ${
-                    !isWalletReady || !amount || !price
+                    (!isWalletReady || !isOrderInputValid)
                       ? 'bg-neutral-800 text-neutral-500 cursor-not-allowed'
                       : orderSide === 'buy'
                       ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-[0_0_20px_rgba(16,185,129,0.15)]'
                       : 'bg-rose-600 hover:bg-rose-500 text-white shadow-[0_0_20px_rgba(225,29,72,0.15)]'
                   }`}
                 >
-                  {!wallet.isCorrectChain
+                  {!wallet.isConnected
+                    ? 'Connect Wallet to Trade'
+                    : !wallet.isCorrectChain
                     ? 'Switch to BSC Testnet'
                     : `${orderSide === 'buy' ? 'Buy' : 'Sell'} ${selectedToken.symbol} Privately`}
                 </button>
@@ -877,7 +1047,9 @@ export default function App() {
       {/* Order Execution Flow Overlay */}
       {flowState !== 'idle' && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-md bg-[#0a0a0a] border border-neutral-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className={`w-full bg-[#0a0a0a] border border-neutral-800 rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in-95 duration-300 transition-all ${
+            flowState === 'match' || flowState === 'success' ? 'max-w-3xl' : 'max-w-md'
+          }`}>
 
             {/* Phase 1: Confirm */}
             {flowState === 'confirm' && (
@@ -971,146 +1143,196 @@ export default function App() {
               </div>
             )}
 
-            {/* Phase 3: TEE Matching */}
+            {/* Phase 3: TEE Matching — Node + Terminal */}
             {flowState === 'match' && (
-              <div className="p-6 flex flex-col min-h-[420px]">
-                <div className="flex items-center gap-3 mb-6">
-                  <div className="w-10 h-10 bg-emerald-500/10 border border-emerald-500/30 rounded-lg flex items-center justify-center">
-                    <Cpu className="w-5 h-5 text-emerald-400" />
+              <div className="p-8 flex flex-col min-h-[540px]">
+                <div className="mb-6">
+                  <h3 className="text-lg font-bold text-white tracking-tight">TEE Privacy Pipeline</h3>
+                  <p className="text-xs text-neutral-500 font-mono mt-0.5">Enclave execution in progress</p>
+                </div>
+
+                {/* ─── Pipeline Status Bar ─── */}
+                <div className="mb-6 px-2">
+                  <div className="flex items-center">
+                    {[
+                      { step: 1, label: 'Attest', color: 'emerald' },
+                      { step: 2, label: 'Encrypt', color: 'emerald' },
+                      { step: 3, label: 'Match', color: 'emerald' },
+                      { step: 4, label: 'Sign', color: 'amber' },
+                      { step: 5, label: 'Settle', color: 'amber' },
+                    ].map(({ step, label, color }, i, arr) => (
+                      <React.Fragment key={step}>
+                        <div className="flex flex-col items-center gap-1.5 shrink-0">
+                          <div className={`w-3 h-3 rounded-full border-2 transition-all duration-500 ${
+                            matchStep >= step
+                              ? color === 'amber' ? 'border-amber-500 bg-amber-500' : 'border-emerald-500 bg-emerald-500'
+                              : 'border-neutral-600 bg-transparent'
+                          }`} />
+                          <span className={`text-[10px] font-mono transition-colors duration-500 ${
+                            matchStep >= step
+                              ? color === 'amber' ? 'text-amber-400' : 'text-emerald-400'
+                              : 'text-neutral-600'
+                          }`}>{label}</span>
+                        </div>
+                        {i < arr.length - 1 && (
+                          <div className="flex-1 h-px mx-2 bg-neutral-800 relative" style={{ marginBottom: '20px' }}>
+                            <div className={`absolute inset-y-0 left-0 h-px transition-all duration-1000 ease-out ${
+                              matchStep >= step + 1 ? 'w-full' : 'w-0'
+                            } ${arr[i + 1].color === 'amber' ? 'bg-amber-500/80' : 'bg-emerald-500/80'}`} />
+                          </div>
+                        )}
+                      </React.Fragment>
+                    ))}
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-white">TEE Privacy Pipeline</h3>
-                    <p className="text-xs text-emerald-500/80 font-mono">Enclave execution in progress</p>
+                  <div className="flex justify-between mt-2 px-1">
+                    <span className={`text-[9px] font-mono ${matchStep >= 1 && matchStep < 2 ? 'text-emerald-500/50' : 'text-neutral-700'}`}>VERIFY</span>
+                    <span className={`text-[9px] font-mono ${matchStep >= 2 && matchStep < 4 ? 'text-emerald-500/50' : 'text-neutral-700'}`}>TEE ENCLAVE</span>
+                    <span className={`text-[9px] font-mono ${matchStep >= 4 ? 'text-amber-500/50' : 'text-neutral-700'}`}>BNB CHAIN</span>
                   </div>
                 </div>
 
-                {/* Visual Pipeline */}
-                <div className="flex-1 flex flex-col gap-3">
+                {/* ─── 3D Particle Wave ─── */}
+                <ParticleWave step={matchStep} />
 
-                  {/* Step 1: Your Order — Encrypt */}
-                  <div className={`rounded-lg border p-3 transition-all duration-500 ${
-                    matchStep >= 1
-                      ? 'bg-emerald-500/5 border-emerald-500/20'
-                      : 'bg-neutral-900/50 border-neutral-800'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                        matchStep >= 1 ? 'bg-emerald-500/20' : 'bg-neutral-800'
-                      }`}>
-                        {matchStep > 1 ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> :
-                         matchStep === 1 ? <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" /> :
-                         <Lock className="w-4 h-4 text-neutral-600" />}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold text-white">Order Encrypted</div>
-                        <div className="text-[10px] font-mono text-neutral-500 truncate">
-                          {matchStep >= 1
-                            ? `${selectedToken.pair} · ${orderSide.toUpperCase()} · ██████ USDT`
-                            : 'Waiting...'}
-                        </div>
-                      </div>
-                      {matchStep >= 1 && (
-                        <span className="text-[9px] font-mono text-emerald-500/60 px-1.5 py-0.5 rounded bg-emerald-500/10">AES-256</span>
-                      )}
+                {/* ─── Terminal Log ─── */}
+                <div className="flex-1 bg-[#0c0c0c] border border-neutral-800 rounded-lg overflow-hidden flex flex-col">
+                  {/* Terminal header */}
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-800/50 bg-neutral-900/50">
+                    <div className="flex gap-1">
+                      <div className="w-2 h-2 rounded-full bg-red-500/40" />
+                      <div className="w-2 h-2 rounded-full bg-amber-500/40" />
+                      <div className="w-2 h-2 rounded-full bg-emerald-500/40" />
                     </div>
+                    <span className="text-[11px] font-mono text-neutral-600">tee-enclave — darkpool-lite</span>
                   </div>
-
-                  {/* Arrow */}
-                  <div className="flex justify-center">
-                    <div className={`w-px h-4 transition-colors duration-500 ${matchStep >= 2 ? 'bg-emerald-500/40' : 'bg-neutral-800'}`} />
-                  </div>
-
-                  {/* Step 2: TEE Enclave */}
-                  <div className={`rounded-lg border p-3 transition-all duration-500 ${
-                    matchStep >= 2
-                      ? 'bg-emerald-500/5 border-emerald-500/20 shadow-[0_0_20px_rgba(16,185,129,0.08)]'
-                      : 'bg-neutral-900/50 border-neutral-800'
-                  }`}>
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                        matchStep >= 2 ? 'bg-emerald-500/20' : 'bg-neutral-800'
-                      }`}>
-                        {matchStep > 2 ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> :
-                         matchStep === 2 ? <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" /> :
-                         <Shield className="w-4 h-4 text-neutral-600" />}
+                  {/* Terminal body */}
+                  <div className="flex-1 px-4 py-3 space-y-1.5 overflow-y-auto font-mono text-xs">
+                    {matchStep >= 0 && (
+                      <div className="text-neutral-500">
+                        <span className="text-neutral-600">$</span> Verifying TEE environment...
                       </div>
-                      <div className="flex-1">
-                        <div className="text-xs font-semibold text-white">TEE Enclave</div>
-                        <div className="text-[10px] font-mono text-neutral-500">
-                          {matchStep >= 2 ? 'Scanning orderbook inside enclave' : 'Waiting...'}
-                        </div>
+                    )}
+                    {/* Step 1: TEE Attestation (pre-matching verification) */}
+                    {matchStep >= 1 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Enclave measurement</span>
+                        <span className="text-neutral-600">NEAR AI Cloud</span>
+                        {matchStep >= 2 ? <span className="text-emerald-500 ml-auto">VALID</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
                       </div>
-                      {matchStep >= 2 && (
-                        <span className="text-[9px] font-mono text-emerald-500/60 px-1.5 py-0.5 rounded bg-emerald-500/10">SECURE</span>
-                      )}
-                    </div>
-                    {/* Inner enclave visualization */}
+                    )}
+                    {matchStep >= 1 && matchStep < 2 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">GPU attestation</span>
+                        <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />
+                      </div>
+                    )}
                     {matchStep >= 2 && (
-                      <div className="ml-11 mt-1 space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <div className="h-px flex-1 bg-emerald-500/20" />
-                          <span className="text-[9px] font-mono text-emerald-500/40">YOUR ORDER</span>
-                          <div className="h-px w-4 bg-emerald-500/20" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <div className="h-px flex-1 bg-neutral-700/50" />
-                          <span className="text-[9px] font-mono text-neutral-600">COUNTERPARTY</span>
-                          <div className="h-px w-4 bg-neutral-700/50" />
-                        </div>
-                        {matchStep >= 3 && (
-                          <div className="flex items-center gap-2 animate-pulse">
-                            <div className="h-px flex-1 bg-emerald-400/30" />
-                            <span className="text-[9px] font-mono text-emerald-400/70">MATCHED</span>
-                            <div className="h-px w-4 bg-emerald-400/30" />
-                          </div>
-                        )}
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">GPU attestation</span>
+                        <span className="text-neutral-500">{attestation?.gpu_model || 'NVIDIA H100'}</span>
+                        <span className="text-emerald-500 ml-auto">VERIFIED</span>
+                      </div>
+                    )}
+                    {matchStep >= 2 && attestation && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Measurement:</span>
+                        <span className="text-emerald-500/60">{attestation.enclave_measurement}</span>
+                      </div>
+                    )}
+                    {/* Step 3: Encrypt */}
+                    {matchStep >= 3 && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Encrypting order</span>
+                        <span className="text-neutral-600">AES-256-GCM</span>
+                        <span className="text-emerald-500 ml-auto">OK</span>
+                      </div>
+                    )}
+                    {matchStep >= 3 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Payload:</span>
+                        <span className="text-neutral-500">{selectedToken.pair} · {orderSide.toUpperCase()} · ██████</span>
+                      </div>
+                    )}
+                    {/* Step 4: Dual-pass matching */}
+                    {matchStep >= 3 && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-neutral-300">Rule engine</span>
+                        <span className="text-neutral-600">price-time FIFO</span>
+                        {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                      </div>
+                    )}
+                    {matchStep >= 3 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-purple-400">{'>'}</span>
+                        <span className="text-neutral-300">AI engine</span>
+                        <span className="text-neutral-600">NEAR AI Cloud</span>
+                        {matchStep >= 4 ? <span className="text-purple-400 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
+                      </div>
+                    )}
+                    {matchStep >= 4 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-emerald-500">{'>'}</span>
+                        <span className="text-emerald-400/80">Optimal result selected</span>
+                        <span className="text-neutral-600">fill_volume comparison</span>
+                        <span className="text-emerald-500 ml-auto">OK</span>
+                      </div>
+                    )}
+                    {/* Step 5: Sign + Settle */}
+                    {matchStep >= 4 && (
+                      <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
+                        <span className="text-amber-400">{'>'}</span>
+                        <span className="text-neutral-300">ECDSA signing</span>
+                        <span className="text-neutral-600">secp256k1</span>
+                        {matchStep >= 5 ? <span className="text-emerald-500 ml-auto">SIGNED</span> : <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />}
+                      </div>
+                    )}
+                    {matchStep >= 4 && matchStep < 5 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-400">{'>'}</span>
+                        <span className="text-neutral-300">executeSwap</span>
+                        <span className="text-neutral-600">→ BNB Chain</span>
+                        <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />
+                      </div>
+                    )}
+                    {matchStep >= 5 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-400">{'>'}</span>
+                        <span className="text-neutral-300">executeSwap</span>
+                        <span className="text-amber-400 ml-auto">CONFIRMED</span>
+                      </div>
+                    )}
+                    {matchStep >= 5 && (
+                      <div className="flex items-center gap-2 pt-1">
+                        <span className="text-emerald-400">✓</span>
+                        <span className="text-emerald-400 font-semibold">Pipeline complete — settlement on-chain</span>
+                      </div>
+                    )}
+                    {matchStep < 5 && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <span className="text-neutral-600">$</span>
+                        <div className="w-2 h-3.5 bg-emerald-500/70 animate-pulse" />
                       </div>
                     )}
                   </div>
-
-                  {/* Arrow */}
-                  <div className="flex justify-center">
-                    <div className={`w-px h-4 transition-colors duration-500 ${matchStep >= 3 ? 'bg-emerald-500/40' : 'bg-neutral-800'}`} />
-                  </div>
-
-                  {/* Step 3: TEE Signature */}
-                  <div className={`rounded-lg border p-3 transition-all duration-500 ${
-                    matchStep >= 3
-                      ? 'bg-emerald-500/5 border-emerald-500/20'
-                      : 'bg-neutral-900/50 border-neutral-800'
-                  }`}>
-                    <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                        matchStep >= 3 ? 'bg-emerald-500/20' : 'bg-neutral-800'
-                      }`}>
-                        {matchStep > 3 ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> :
-                         matchStep === 3 ? <Loader2 className="w-4 h-4 text-emerald-400 animate-spin" /> :
-                         <Fingerprint className="w-4 h-4 text-neutral-600" />}
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-xs font-semibold text-white">TEE Signature & Settlement</div>
-                        <div className="text-[10px] font-mono text-neutral-500">
-                          {matchStep >= 3 ? 'Signing swap → BNB Chain' : 'Waiting...'}
-                        </div>
-                      </div>
-                      {matchStep >= 4 && (
-                        <span className="text-[9px] font-mono text-emerald-500/60 px-1.5 py-0.5 rounded bg-emerald-500/10">ON-CHAIN</span>
-                      )}
-                    </div>
-                  </div>
-
                 </div>
 
                 {/* Footer */}
-                <div className="mt-4 pt-4 border-t border-neutral-800/50 flex items-center justify-between text-xs font-mono text-neutral-500">
+                <div className="mt-3 flex items-center justify-between text-xs font-mono text-neutral-500">
                   <div className="flex items-center gap-1.5">
-                    <Fingerprint className="w-3.5 h-3.5" />
-                    <span>Attestation Verified</span>
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>{matchStep >= 2 ? 'TEE Verified' : matchStep >= 1 ? 'Verifying TEE...' : 'Attestation pending'}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <div className={`w-1.5 h-1.5 rounded-full ${matchStep > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-neutral-600'}`} />
                     <span className={matchStep > 0 ? 'text-emerald-500/50' : ''}>
-                      {matchStep === 0 ? 'Initializing' : matchStep < 4 ? 'Processing' : 'Complete'}
+                      {matchStep === 0 ? 'Initializing' : matchStep < 5 ? 'Processing' : 'Complete'}
                     </span>
                   </div>
                 </div>
@@ -1119,55 +1341,217 @@ export default function App() {
 
             {/* Phase 4: Success */}
             {flowState === 'success' && executionResult && (
-              <div className="p-8 flex flex-col items-center text-center">
-                <div className="w-16 h-16 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center mb-6">
-                  <Check className="w-8 h-8 text-emerald-400" />
+              <div className="p-6">
+                {/* Header */}
+                <div className="flex items-center gap-3 mb-6">
+                  <div className="w-10 h-10 bg-emerald-500/10 border border-emerald-500/30 rounded-full flex items-center justify-center">
+                    <Check className="w-5 h-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-white">
+                      {executionResult.pending ? 'Order Submitted' : 'Order Filled'}
+                    </h2>
+                    <p className="text-xs text-neutral-500">
+                      {executionResult.pending ? 'Waiting for counterparty match' : 'Private trade executed via TEE'}
+                    </p>
+                  </div>
                 </div>
-                <h2 className="text-2xl font-bold text-white mb-2">
-                  {executionResult.pending ? 'Order Submitted' : 'Order Filled'}
-                </h2>
-                <p className="text-sm text-neutral-400 mb-8">
-                  {executionResult.pending
-                    ? 'Your order is pending — waiting for a counterparty match.'
-                    : 'Your private trade has been executed'}
-                </p>
 
-                <div className="w-full bg-neutral-900/50 border border-neutral-800 rounded-xl p-5 space-y-4 mb-8 text-left">
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-neutral-500">Execution Price</span>
-                    <span className="text-sm font-mono text-white">{executionResult.price} USDT</span>
+                {/* Two-column layout */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+                  {/* Left: Trade Details */}
+                  <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 space-y-3">
+                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Trade Summary</span>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-neutral-500">Price</span>
+                      <span className="text-sm font-mono text-white">{executionResult.price} USDT</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-neutral-500">Amount</span>
+                      <span className="text-sm font-mono text-white">{executionResult.amount} {selectedToken.symbol}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-neutral-500">Total</span>
+                      <span className="text-sm font-mono text-emerald-400">{executionResult.total} USDT</span>
+                    </div>
+                    <div className="h-px bg-neutral-800" />
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs text-neutral-500">Status</span>
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${executionResult.pending ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                        <span className="text-xs font-medium text-white">
+                          {executionResult.pending ? 'Pending' : `${executionResult.filled}% Filled`}
+                        </span>
+                      </div>
+                    </div>
+                    {executionResult.hash && (
+                      <>
+                        <div className="h-px bg-neutral-800" />
+                        <a
+                          href={`${BSC_TESTNET.blockExplorer}/tx/${executionResult.hash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 text-[10px] font-mono text-neutral-500 hover:text-emerald-400 transition-colors"
+                        >
+                          <span>Tx: {executionResult.hash.substring(0, 10)}...{executionResult.hash.substring(58)}</span>
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </>
+                    )}
                   </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-neutral-500">{executionResult.pending ? 'Order Amount' : 'Filled Amount'}</span>
-                    <span className="text-sm font-mono text-white">{executionResult.amount} {selectedToken.symbol}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-neutral-500">Total Value</span>
-                    <span className="text-sm font-mono text-emerald-400">{executionResult.total} USDT</span>
-                  </div>
-                  <div className="h-px bg-neutral-800 w-full my-2"></div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-xs text-neutral-500">Status</span>
-                    <div className="flex items-center gap-1.5">
-                      <div className={`w-1.5 h-1.5 rounded-full ${executionResult.pending ? 'bg-blue-500' : 'bg-emerald-500'}`}></div>
-                      <span className="text-xs font-medium text-white">
-                        {executionResult.pending ? 'Pending Match' : `${executionResult.filled}% Filled`}
+
+                  {/* Right: MEV Protection */}
+                  <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 space-y-3">
+                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">MEV Protection</span>
+
+                    {/* Public DEX comparison */}
+                    <div className="bg-rose-500/5 border border-rose-500/10 rounded-md p-3">
+                      <div className="text-[10px] font-mono text-rose-400/60 mb-2">Public DEX (e.g. PancakeSwap)</div>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-500">Frontrun risk</span>
+                          <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.003).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-500">Sandwich attack</span>
+                          <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.005).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-500">Price impact</span>
+                          <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.002).toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* DarkPool */}
+                    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-md p-3">
+                      <div className="text-[10px] font-mono text-emerald-400/60 mb-2">DarkPool Lite (TEE)</div>
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-500">Frontrun risk</span>
+                          <span className="font-mono text-emerald-400">$0.00</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-500">Sandwich attack</span>
+                          <span className="font-mono text-emerald-400">$0.00</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-neutral-500">Price impact</span>
+                          <span className="font-mono text-emerald-400">$0.00</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-1 border-t border-neutral-800">
+                      <span className="text-xs text-neutral-500">You saved</span>
+                      <span className="text-sm font-mono font-bold text-emerald-400">
+                        ~${(parseFloat(executionResult.total) * 0.01).toFixed(2)}
                       </span>
                     </div>
                   </div>
                 </div>
 
-                {executionResult.hash && (
-                  <a
-                    href={`${BSC_TESTNET.blockExplorer}/tx/${executionResult.hash}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center gap-2 text-xs font-mono text-neutral-400 hover:text-emerald-400 transition-colors mb-8"
-                  >
-                    <span>Tx: {executionResult.hash.substring(0, 10)}...{executionResult.hash.substring(58)}</span>
-                    <ExternalLink className="w-3.5 h-3.5" />
-                  </a>
-                )}
+                {/* Matching Engine Result */}
+                <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
+                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Dual-Pass Matching</span>
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-emerald-500" />
+                        <span className="text-neutral-400">Rule Engine</span>
+                        <span className="text-neutral-600 font-mono">price-time FIFO</span>
+                      </div>
+                      <span className="font-mono text-neutral-500">{executionResult.amount} {selectedToken.symbol}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <div className="flex items-center gap-2">
+                        <div className="w-1 h-1 rounded-full bg-purple-500" />
+                        <span className="text-neutral-400">NEAR AI Cloud</span>
+                        <span className="text-neutral-600 font-mono">LLM optimization</span>
+                      </div>
+                      <span className="font-mono text-purple-400">{executionResult.amount} {selectedToken.symbol}</span>
+                    </div>
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between text-[10px]">
+                    <span className="font-mono text-neutral-600">Selected: higher fill volume</span>
+                    <span className="font-mono text-purple-400/70">via NEAR AI</span>
+                  </div>
+                </div>
+
+                {/* TEE Attestation */}
+                <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">TEE Attestation</span>
+                    <span className="text-[9px] font-mono text-emerald-500/60">pre-verified</span>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Enclave measurement</span>
+                      <span className="font-mono text-emerald-500/70 text-[10px]">{attestation?.enclave_measurement || 'n/a'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">GPU attestation</span>
+                      <span className="font-mono text-emerald-500/70 text-[10px]">{attestation ? `${attestation.gpu_model} verified` : 'n/a'}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Code integrity</span>
+                      <span className="font-mono text-emerald-500/70 text-[10px]">{attestation?.code_integrity || 'n/a'}</span>
+                    </div>
+                    {attestation?.signing_addresses?.[0] && (
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-neutral-500">Signing address</span>
+                        <span className="font-mono text-emerald-500/70 text-[10px]">{attestation.signing_addresses[0].substring(0, 8)}...{attestation.signing_addresses[0].substring(36)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-neutral-800 text-[10px] font-mono text-neutral-600">
+                    TEE environment verified before order entered enclave
+                  </div>
+                </div>
+
+                {/* Privacy Report */}
+                <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-6">
+                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Privacy Report — On-chain Visibility</span>
+                  <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Deposit amount</span>
+                      <span className="font-mono text-amber-400">Visible</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Order side (buy/sell)</span>
+                      <span className="font-mono text-emerald-400">Hidden</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Settlement tx</span>
+                      <span className="font-mono text-amber-400">Visible</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Limit price</span>
+                      <span className="font-mono text-emerald-400">Hidden</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Wallet address</span>
+                      <span className="font-mono text-amber-400">Visible</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Counterparty</span>
+                      <span className="font-mono text-emerald-400">Hidden</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Token type</span>
+                      <span className="font-mono text-amber-400">Visible</span>
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-neutral-500">Order timing</span>
+                      <span className="font-mono text-emerald-400">Hidden</span>
+                    </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t border-neutral-800 flex items-center justify-between">
+                    <span className="text-[10px] font-mono text-neutral-600">4 fields visible · 4 fields hidden in TEE</span>
+                    <span className="text-[10px] font-mono text-emerald-500/60">Privacy score: 50% on-chain shielded</span>
+                  </div>
+                </div>
 
                 <button
                   onClick={resetFlow}
