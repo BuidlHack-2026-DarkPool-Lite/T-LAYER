@@ -39,7 +39,10 @@ mm_bot:
     price_refresh_threshold_pct: 0.05
 
   onchain:
-    # BSC Testnet 기본 — Track B / mainnet은 환경변수로 전환
-    base_token: "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
-    quote_token: "0x55d398326f99059fF775485246999027B3197955"
+    # BSC Testnet 주소. price_feed 는 mainnet Pancake/Binance 레퍼런스 가격을
+    # 가져오지만 deposit/cancel 은 BSC_TESTNET_RPC 로 발생하므로 여기 토큰도
+    # 테스트넷 주소여야 한다. quote_token 은 사용자가 보유한 테스트넷
+    # 스테이블 주소로 교체해야 한다 (공식 테스트넷 USDT 는 없음).
+    base_token: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd"  # BSC Testnet WBNB
+    quote_token: ""  # TODO: 사용자가 보유한 BSC Testnet 스테이블 주소로 설정
     gas_price_gwei: 10
