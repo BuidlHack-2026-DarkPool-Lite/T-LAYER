@@ -209,6 +209,18 @@ class TestExtractEnclaveMeasurement:
     def test_no_measurement(self):
         assert extract_enclave_measurement(SAMPLE_REPORT) == ""
 
+    def test_model_attestations_not_a_list(self):
+        assert extract_enclave_measurement({"model_attestations": None}) == ""
+        assert extract_enclave_measurement({"model_attestations": "bad"}) == ""
+
+    def test_model_attestations_contains_non_dict(self):
+        report = {"model_attestations": [None, "x", 42, {"enclave_measurement": "valid"}]}
+        assert extract_enclave_measurement(report) == "valid"
+
+    def test_model_attestations_all_non_dict(self):
+        report = {"model_attestations": [None, "x", 42]}
+        assert extract_enclave_measurement(report) == ""
+
 
 class TestExtractGpuModel:
     def test_hwmodel(self):
@@ -228,6 +240,14 @@ class TestExtractGpuModel:
 
     def test_no_jwt(self):
         assert extract_gpu_model_from_jwt({}) == ""
+
+    def test_eat_token_not_a_string(self):
+        assert extract_gpu_model_from_jwt({"eat_token": 12345}) == ""
+        assert extract_gpu_model_from_jwt({"eat_token": None}) == ""
+
+    def test_eat_token_malformed_jwt(self):
+        assert extract_gpu_model_from_jwt({"eat_token": "not-a-jwt"}) == ""
+        assert extract_gpu_model_from_jwt({"eat_token": "a.b.c.d.e"}) == ""
 
 
 class TestVerifyAttestationNewFields:
