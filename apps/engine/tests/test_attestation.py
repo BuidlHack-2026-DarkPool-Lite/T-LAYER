@@ -8,6 +8,8 @@ import pytest
 
 from src.attestation.verifier import (
     decode_nvidia_jwt_payload,
+    extract_enclave_measurement,
+    extract_gpu_model_from_jwt,
     extract_nvidia_payloads,
     extract_signing_addresses,
     verify_attestation,
@@ -183,3 +185,83 @@ class TestVerifyAttestation:
 
         assert result.success is True
         assert result.gpu_verified is False
+
+
+class TestExtractEnclaveMeasurement:
+    def test_top_level(self):
+        report = {"enclave_measurement": "abc123"}
+        assert extract_enclave_measurement(report) == "abc123"
+
+    def test_from_model_attestation(self):
+        report = {"model_attestations": [{"enclave_measurement": "def456"}]}
+        assert extract_enclave_measurement(report) == "def456"
+
+    def test_top_level_takes_priority(self):
+        report = {
+            "enclave_measurement": "top",
+            "model_attestations": [{"enclave_measurement": "nested"}],
+        }
+        assert extract_enclave_measurement(report) == "top"
+
+    def test_empty_report(self):
+        assert extract_enclave_measurement({}) == ""
+
+    def test_no_measurement(self):
+        assert extract_enclave_measurement(SAMPLE_REPORT) == ""
+
+
+class TestExtractGpuModel:
+    def test_hwmodel(self):
+        jwt = _make_jwt({"x-nvidia-hwmodel": "NVIDIA H100"})
+        resp = {"eat_token": jwt}
+        assert extract_gpu_model_from_jwt(resp) == "NVIDIA H100"
+
+    def test_gpu_arch_fallback(self):
+        jwt = _make_jwt({"x-nvidia-gpu-arch": "Hopper"})
+        resp = {"eat_token": jwt}
+        assert extract_gpu_model_from_jwt(resp) == "Hopper"
+
+    def test_no_gpu_info(self):
+        jwt = _make_jwt({"x-nvidia-overall-att-result": True})
+        resp = {"eat_token": jwt}
+        assert extract_gpu_model_from_jwt(resp) == ""
+
+    def test_no_jwt(self):
+        assert extract_gpu_model_from_jwt({}) == ""
+
+
+class TestVerifyAttestationNewFields:
+    @pytest.mark.asyncio
+    async def test_enclave_and_gpu_model_populated(self):
+        report_with_enclave = {
+            "enclave_measurement": "enclave_abc",
+            "model_attestations": [
+                {
+                    "signing_address": "0xABCD",
+                    "nvidia_payload": '{"evidence": "test"}',
+                },
+            ],
+        }
+        jwt = _make_jwt({
+            "x-nvidia-overall-att-result": True,
+            "x-nvidia-hwmodel": "NVIDIA A100",
+        })
+        nvidia_resp = {"eat_token": jwt}
+
+        with (
+            patch(
+                "src.attestation.verifier.fetch_attestation_report",
+                new_callable=AsyncMock,
+                return_value=report_with_enclave,
+            ),
+            patch(
+                "src.attestation.verifier.verify_gpu_attestation",
+                new_callable=AsyncMock,
+                return_value=nvidia_resp,
+            ),
+        ):
+            result = await verify_attestation("test-model")
+
+        assert result.success is True
+        assert result.enclave_measurement == "enclave_abc"
+        assert result.gpu_model == "NVIDIA A100"
