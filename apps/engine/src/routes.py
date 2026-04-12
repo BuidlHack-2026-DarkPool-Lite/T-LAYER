@@ -113,7 +113,7 @@ async def verify_attestation_endpoint() -> AttestationResponse:
         result = await verify_attestation(NEAR_AI_MODEL)
     except Exception as exc:
         logger.exception("attestation 검증 중 예외 발생")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Internal server error") from exc
 
     if not result.success:
         raise HTTPException(status_code=503, detail=result.error or "attestation 검증 실패")

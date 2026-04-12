@@ -196,4 +196,4 @@ class TestAttestationVerify:
             resp = client.get("/attestation/verify")
 
         assert resp.status_code == 500
-        assert "connection refused" in resp.json()["detail"]
+        assert resp.json()["detail"] == "Internal server error"
