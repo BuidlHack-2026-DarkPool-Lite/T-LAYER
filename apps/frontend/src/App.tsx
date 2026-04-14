@@ -19,26 +19,11 @@ const TOKENS = [
   { symbol: 'TWT', pair: 'TWT/USDT', tradingViewPair: 'TWTUSDT', name: 'Trust Wallet', tag: 'BEP-20', icon: 'https://assets.coingecko.com/coins/images/11085/small/Trust.png', bscAddress: '0x4B0F1812e5Df2A09796481Ff14017e6005508003' },
 ];
 
-const GlitchEyeLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
+const TLayerLogo = ({ className = "w-6 h-6" }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-    <defs>
-      <mask id="glitch-eye-mask">
-        <rect width="24" height="24" fill="white" />
-        <rect x="0" y="0" width="9.5" height="24" fill="black" />
-        <circle cx="13.5" cy="12" r="4.5" fill="black" />
-        <rect x="8.75" y="-2" width="6.5" height="28" fill="black" transform="rotate(-45 12 12)" />
-      </mask>
-    </defs>
-    <path
-      d="M 1 12 C 5 3 19 3 23 12 C 19 21 5 21 1 12 Z"
-      fill="currentColor"
-      mask="url(#glitch-eye-mask)"
-    />
-    <rect x="10.25" y="-1" width="3.5" height="26" fill="currentColor" transform="rotate(-45 12 12)" />
-    <rect x="6" y="8.5" width="2.5" height="1.5" fill="currentColor" />
-    <rect x="4.5" y="11" width="5.5" height="1.5" fill="currentColor" />
-    <rect x="2.5" y="13.5" width="4.5" height="1.5" fill="currentColor" />
-    <rect x="5.5" y="16" width="4.5" height="1.5" fill="currentColor" />
+    <polygon points="2,4 22,4 20,7.5 4,7.5" fill="currentColor" />
+    <polygon points="5,10.5 19,10.5 17.5,14 6.5,14" fill="currentColor" opacity="0.5" />
+    <polygon points="7.5,16.5 16.5,16.5 15.5,20 8.5,20" fill="currentColor" opacity="0.25" />
   </svg>
 );
 
@@ -547,8 +532,8 @@ export default function App() {
 
         <div className="relative z-10 flex flex-col items-center max-w-md px-6 text-center">
           {/* Logo */}
-          <div className="w-14 h-14 rounded-xl bg-neutral-900 border border-neutral-800 flex items-center justify-center mb-4 shadow-[0_0_40px_rgba(16,185,129,0.15)]">
-            <GlitchEyeLogo className="w-7 h-7 text-white" />
+          <div className="mb-4 drop-shadow-[0_0_24px_rgba(16,185,129,0.3)]">
+            <TLayerLogo className="w-12 h-12 text-emerald-400" />
           </div>
 
           <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">
@@ -595,8 +580,8 @@ export default function App() {
       <header className="h-16 border-b border-neutral-800/50 bg-[#0a0a0a] flex items-center justify-between px-6 shrink-0">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.15)]">
-              <GlitchEyeLogo />
+            <div className="drop-shadow-[0_0_8px_rgba(16,185,129,0.3)]">
+              <TLayerLogo className="w-7 h-7 text-emerald-400" />
             </div>
             <span className="font-bold text-lg tracking-tight text-white">T-LAYER</span>
           </div>
