@@ -6,8 +6,8 @@ Competitive TEE Matching: 3개 전략 프롬프트 + Judge 프롬프트.
 from __future__ import annotations
 
 import json
-from src.models.order import Order
 
+from src.models.order import Order
 
 # ─── 공통 매칭 규칙 (모든 전략이 공유) ───────────────────────────────
 

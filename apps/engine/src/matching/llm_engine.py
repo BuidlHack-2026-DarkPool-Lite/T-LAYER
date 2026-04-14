@@ -19,11 +19,11 @@ from src.matching.inference_config import (
 )
 from src.matching.prompt import (
     CONSERVATIVE_PROMPT,
-    VOLUME_MAX_PROMPT,
     FREE_OPTIMIZER_PROMPT,
     JUDGE_PROMPT,
-    build_user_message,
+    VOLUME_MAX_PROMPT,
     build_judge_message,
+    build_user_message,
 )
 from src.matching.schema import get_response_format
 from src.models.order import Order
