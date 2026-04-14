@@ -1,6 +1,6 @@
 # 🌑 DarkPool Lite
 
-**MEV-Protected OTC Trading on BNB Chain, Powered by TEE + AI**
+**MEV-Protected OTC Trading on BNB Chain, Powered by Competitive TEE Matching + AI**
 
 > Every on-chain order is public. Bots exploit it before you can blink.
 > DarkPool Lite fixes this.
@@ -18,47 +18,76 @@ DeFi traders lose **$1.3B+** to MEV (Maximal Extractable Value) attacks annually
 
 ## The Solution
 
-DarkPool Lite is a **decentralized dark pool** for MEV-free OTC trading on BNB Chain. Orders are matched inside a **Trusted Execution Environment (TEE)** where no one — not even the server operator — can see the order book. AI calculates fair pricing from multiple DEX feeds, and matched trades settle via **on-chain atomic swaps** with zero counterparty risk.
+DarkPool Lite is a **decentralized dark pool** for MEV-free OTC trading on BNB Chain. Three competing AI strategies match orders inside a **NEAR AI Trusted Execution Environment (TEE)**, a Judge AI picks the optimal result, and matched trades settle via **on-chain atomic swaps**. No one — not even the server operator — can see the order book or tamper with matching results.
 
 ### Key Features
 
-- **TEE Privacy** — Orders matched inside NEAR AI Cloud TEE. Order data never leaves the enclave.
+- **Competitive TEE Matching** — 3 AI strategies race in parallel; a Judge scores and selects the best result. Proves the outcome is better than alternatives.
+- **Double-Layer Privacy** — Wallet addresses are stripped before entering the TEE. Even if the TEE is compromised, trader identity stays hidden.
 - **AI-Powered Pricing** — Real-time fair price aggregated from PancakeSwap & Binance with dynamic slippage guardrails.
-- **Rule-Based Matching** — Transparent price-priority → time-priority (FIFO) matching with partial fill support.
-- **Atomic Settlement** — Escrow-based deposit → TEE-signed match → on-chain atomic swap. No counterparty risk.
+- **Atomic Settlement** — Escrow deposit → TEE-signed match → on-chain atomic swap. Zero counterparty risk.
 - **MEV Structural Impossibility** — Not just mitigation — MEV is architecturally impossible because order data only exists inside the TEE.
 
 ---
 
-## Architecture
+## Architecture: Competitive TEE Matching
 
 ```
-┌──────────────┐     ┌──────────────────────────────┐     ┌─────────────────┐
-│              │     │     TEE Matching Engine       │     │                 │
-│   Frontend   │────▶│  ┌─────────────────────────┐  │────▶│   BSC Escrow    │
-│  (React +    │ WS  │  │ Rule-Based Matcher      │  │ TX  │   Contract      │
-│   wagmi)     │◀────│  │ AI Fair Price (LLM)     │  │◀────│  (Solidity)     │
-│              │     │  │ Slippage Guardrail      │  │     │                 │
-└──────┬───────┘     │  └─────────────────────────┘  │     └─────────────────┘
-       │             │     NEAR AI Cloud             │
-       │             └──────────────────────────────┘
-       │
-       ▼
-  ┌──────────┐
-  │ MetaMask │  approve + deposit
-  │ (BSC)    │  ───────────────▶  Escrow Contract
-  └──────────┘
+┌──────────────┐    ┌──────────────┐    ┌─────────────────────────────────────────────┐
+│              │    │              │    │           NEAR AI TEE ENCLAVE               │
+│  1. User     │───▶│ 2. Anonymize │───▶│                                             │
+│  Order       │    │  Strip wallet│    │  ┌────────────┐┌────────────┐┌────────────┐ │
+│  MetaMask →  │    │  Order ID    │    │  │ TEE Call 1 ││ TEE Call 2 ││ TEE Call 3 │ │
+│  Frontend →  │    │  only        │    │  │Conservative││ Volume Max ││   Free     │ │
+│  Backend API │    │              │    │  │Safe matching││Max fill    ││ Optimizer  │ │
+└──────────────┘    └──────────────┘    │  │            ││ rate       ││LLM decides │ │
+                                        │  └─────┬──────┘└─────┬──────┘└─────┬──────┘ │
+                                        │        └─────────────┼─────────────┘        │
+                                        │                      ▼                      │
+                                        │             ┌──────────────┐                │
+                                        │             │  TEE Call 4  │  Scoring:      │
+                                        │             │    JUDGE     │  Fill Rate 40% │
+                                        │             │ Score &      │  Spread    30% │
+                                        │             │ Select Winner│  Fairness  30% │
+                                        │             └──────┬───────┘                │
+                                        └────────────────────┼────────────────────────┘
+                                                             ▼
+┌──────────────┐    ┌──────────────────────┐    ┌─────────────────┐
+│ 7. Result    │◀───│ 6. On-chain          │◀───│ 5. TEE          │
+│ to User      │    │ Settlement           │    │ Signature       │
+│ TX hash +    │    │ executeSwap() on BSC │    │ ECDSA +         │
+│ Winner +     │    │ DarkPoolEscrow       │    │ Attestation     │
+│ Score table  │    │                      │    │                 │
+└──────────────┘    └──────────────────────┘    └─────────────────┘
 ```
 
-### Data Flow
+### How the 4 TEE Calls Work
 
-1. **User deposits** tokens into the escrow smart contract on BSC (on-chain)
-2. **Encrypted order** is sent to the TEE matching engine (off-chain)
-3. **AI fetches** live prices from PancakeSwap & Binance, calculates fair mid-price (off-chain, inside TEE)
-4. **Rule-based matcher** executes price-priority → time-priority matching with partial fills (off-chain, inside TEE)
-5. **TEE signs** the match result → contract verifies signature → **atomic swap executes** (on-chain)
+All calls run on **DeepSeek-V3.1** inside the same NEAR AI TEE. Only the prompt differs.
 
-Only deposit and swap transactions appear on-chain. **No order information is ever recorded on the blockchain.**
+| TEE Call | Strategy | Approach |
+|----------|----------|----------|
+| **Call 1: Conservative** | Safe matching | Match by smallest price gap first. If uncertain, don't match. |
+| **Call 2: Volume Max** | Max fill rate | Fill as many orders as possible. Aggressive partial fills. |
+| **Call 3: Free Optimizer** | LLM decides | Balance fill rate, price quality, and fairness holistically. |
+| **Call 4: Judge** | Score & select | Evaluate all 3 results: Fill Rate (40%) + Spread (30%) + Fairness (30%). Pick the winner. |
+
+### Why Competitive > Single Matching
+
+A single TEE matcher can only prove *"this TEE was fair."*
+Competitive TEE matching proves *"this result was **better** than the alternatives."*
+
+---
+
+## Privacy Design
+
+Wallet addresses are **stripped before entering the TEE**:
+
+| TEE Receives | TEE Does NOT Know |
+|---|---|
+| `{ id: "order-001", side: "buy", pair: "BNB/USDT", amount: 10, price: 590 }` | Wallet address (`0x7F...3b9A`), IP address, trade history |
+
+The TEE returns `"order-001 ↔ order-003 matched"` → Backend restores order ID → wallet mapping → executes on-chain. Even if the TEE is compromised, trader identity is never exposed.
 
 ---
 
@@ -67,14 +96,47 @@ Only deposit and swap transactions appear on-chain. **No order information is ev
 ```
 darkpool-lite/
 ├── apps/
-│   ├── contracts/       # Solidity — DarkPoolEscrow.sol (Hardhat)
-│   ├── engine/          # Python — TEE matching engine (FastAPI + NEAR AI)
-│   └── frontend/        # TypeScript — React + wagmi + ethers.js
-├── packages/
-│   └── contracts-abi/   # Shared ABI for frontend ↔ contract
-├── tools/               # Dev utilities
-└── .github/workflows/   # CI (path-filtered matrix)
+│   ├── contracts/                # Solidity (Hardhat) — 32 tests
+│   │   ├── contracts/
+│   │   │   ├── DarkPoolEscrow.sol
+│   │   │   └── mocks/           # MockERC20, ReentrancyAttacker
+│   │   ├── scripts/deploy.js
+│   │   └── test/DarkPoolEscrow.test.js
+│   ├── engine/                   # Python (FastAPI + NEAR AI TEE)
+│   │   └── src/
+│   │       ├── matching/
+│   │       │   ├── engine.py          # _dual_pass() → _competitive_match()
+│   │       │   ├── llm_engine.py      # LLM call functions (competitive 4-call)
+│   │       │   ├── prompt.py          # Strategy-specific system prompts
+│   │       │   ├── rules_engine.py    # Fallback rule-based matcher
+│   │       │   ├── runner.py          # Matching cycle orchestrator
+│   │       │   ├── validator.py       # Match result validation
+│   │       │   └── schema.py          # Data models
+│   │       ├── attestation/           # NEAR AI TEE attestation verification
+│   │       ├── pricing/               # PancakeSwap + Binance price feeds
+│   │       ├── signer/                # ECDSA signing for BSC submission
+│   │       ├── mm_bot/                # Market maker bot (disabled in demo)
+│   │       └── main.py / routes.py / ws.py
+│   └── frontend/                 # React + Vite + wagmi
+│       └── src/
+│           ├── App.tsx                # Main UI + matching result display
+│           ├── hooks/                 # useWallet, useEscrow
+│           ├── services/              # API + WebSocket clients
+│           └── config.ts / abi.ts
+├── packages/contracts-abi/       # Shared ABI (single source of truth)
+├── tools/                        # Dev utilities
+└── .github/workflows/            # CI (path-filtered matrix)
 ```
+
+---
+
+## Deployed Contracts (BSC Testnet)
+
+| Contract | Address |
+|----------|---------|
+| **DarkPoolEscrow** | `0x34336C18E764B2ae28d28E90E040E57d6C74DAce` |
+| **TestToken tUSDT** | `0xb8880f6c5D256263576266d90E9C20e85fD9F40E` |
+| **TestToken tBNBT** | `0x70F2b66CD95F82389c3382c6FDB7E0e4A2CA4f62` |
 
 ---
 
@@ -128,7 +190,8 @@ cp .env.example .env
 uv run uvicorn src.main:app --reload
 ```
 
-> Without NEAR AI keys the demo still works — attestation shows "UNVERIFIED" and matching uses the rule engine. With keys, attestation shows "VERIFIED" and AI generates matching reasoning.
+> **Without NEAR AI keys:** Demo still works — attestation shows "UNVERIFIED" and matching uses the rule engine fallback.
+> **With NEAR AI keys:** Attestation shows "VERIFIED" + competitive 3-strategy matching with Judge scoring + AI reasoning displayed in UI.
 
 ### 4. Start the Frontend
 
@@ -148,25 +211,23 @@ npm run dev
 1. Open the app → Connect MetaMask (BSC Testnet)
 2. **Tab 1 (Bob / MM):** Place a buy order for 100 BNB → approve + deposit
 3. **Tab 2 (Alice / Trader):** Place a sell order for 80 BNB → approve + deposit
-4. Watch the TEE match in seconds → atomic swap executes
-5. Check BSCScan: only deposit and swap txs visible — **no order info on-chain**
-6. Bob's remaining 20 BNB stays in the pool (partial fill)
+4. Watch 3 strategies compete inside the TEE → Judge picks the winner
+5. Atomic swap executes on-chain
+6. Check BSCScan: only deposit and swap txs visible — **no order info on-chain**
+7. Bob's remaining 20 BNB stays in the pool (partial fill)
 
 ---
 
-## Matching Rules
+## Why TEE Is Essential
 
-All matching happens inside the TEE. The rules are public; the order data is not.
+| Attack Scenario | Without TEE | With TEE |
+|---|---|---|
+| Operator manipulates match results | Possible — server can modify | Impossible — execution inside TEE |
+| Operator rigs Judge scores | Possible — scoring logic editable | Impossible — Judge runs inside TEE |
+| Operator reads orders pre-match | Possible — server logs visible | Meaningless — wallet addresses stripped |
+| Third-party verification | "Trust me, it was fair" | Attestation report proves it |
 
-| Rule | Description |
-|------|-------------|
-| Price Compatibility | Buy limit ≥ Sell limit to match |
-| Price Priority | Highest buy / Lowest sell matched first |
-| Time Priority | Same price → FIFO |
-| AI Fair Price | Mid-price calculated from multiple DEX feeds |
-| Slippage Guard | Rejects matches outside ±1.5% of limit price (dynamic) |
-| Partial Fills | 100 sell vs 60 buy → 60 filled, 40 remains in pool |
-| Minimum Size | Prevents dust trades (e.g., min 1 BNB) |
+**Key insight:** A single TEE proves fairness. Competitive TEE proves *optimality*.
 
 ---
 
@@ -177,6 +238,7 @@ All matching happens inside the TEE. The rules are public; the order data is not
 | Matching latency | Milliseconds | Seconds to minutes (proof generation) |
 | Multi-party matching | Native support | Extremely complex circuits |
 | Real-time pricing | Live DEX feeds inside enclave | Hard to incorporate external data |
+| Competitive strategies | Multiple LLMs in parallel | Not feasible with ZK circuits |
 | Implementation complexity | Production-ready (NEAR AI Cloud) | Research-stage for matching |
 
 ---
@@ -196,10 +258,12 @@ Traditional DEX market makers lose spread profits to sandwich bots. In DarkPool 
 
 | Layer | Technology |
 |-------|------------|
-| Smart Contract | Solidity (Hardhat) on BSC/opBNB Testnet |
+| Smart Contract | Solidity (Hardhat) — BSC Testnet |
 | TEE Engine | Python, FastAPI, NEAR AI Cloud TEE |
-| AI Pricing | Multi-source aggregation (PancakeSwap, Binance) + LLM reasoning |
-| Frontend | React, TypeScript, wagmi, ethers.js |
+| AI Matching | DeepSeek-V3.1 × 4 calls (3 strategies + 1 judge) |
+| AI Pricing | Multi-source aggregation (PancakeSwap, Binance) |
+| Frontend | React, TypeScript, Vite, wagmi, ethers.js |
+| Verification | NEAR AI attestation + NVIDIA GPU attestation |
 | CI | GitHub Actions (path-filtered matrix) |
 
 ---
@@ -210,7 +274,7 @@ Built at **BuidlHack 2026** — BNB Chain + NEAR AI Track.
 
 | Name | Role | Focus |
 |------|------|-------|
-| Daeyun | PM / Pitch | Strategy + demo + submission |
+| Daeyun | PM / Pitch | Product strategy + pitch deck + submission |
 | Hyunseung | Lead / TEE Backend | NEAR AI Cloud + matching engine |
 | Jinsung | Frontend | wagmi + React UX |
 | Kiho | AI Matching | Price feed + optimization |
