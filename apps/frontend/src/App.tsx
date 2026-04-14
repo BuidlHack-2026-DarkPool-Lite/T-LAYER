@@ -1269,7 +1269,7 @@ export default function App() {
                     {matchStep >= 3 && (
                       <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
                         <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">Qwen3-30B</span>
+                        <span className="text-neutral-300">Qwen3-30B-A3B</span>
                         <span className="text-neutral-600">Conservative</span>
                         {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">{executionResult?.scores?.conservative || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
                       </div>
@@ -1277,7 +1277,7 @@ export default function App() {
                     {matchStep >= 3 && (
                       <div className="flex items-center gap-2">
                         <span className="text-amber-400">{'>'}</span>
-                        <span className="text-neutral-300">GLM-5</span>
+                        <span className="text-neutral-300">GLM-5-FP8</span>
                         <span className="text-neutral-600">Volume Max</span>
                         {matchStep >= 4 ? <span className="text-amber-400 ml-auto">{executionResult?.scores?.volume_max || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />}
                       </div>
@@ -1293,7 +1293,7 @@ export default function App() {
                     {matchStep >= 4 && (
                       <div className="flex items-center gap-2">
                         <span className="text-cyan-400">{'>'}</span>
-                        <span className="text-cyan-400/80">Qwen3.5-122B</span>
+                        <span className="text-cyan-400/80">Qwen3.5-122B-A10B</span>
                         <span className="text-neutral-600">Judge · fill(40%)+spread(30%)+fair(30%)</span>
                         <span className="text-cyan-400 ml-auto">WINNER: {executionResult?.judge_reasoning || 'Selected'}</span>
                       </div>
@@ -1473,8 +1473,8 @@ export default function App() {
                   <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Competitive TEE Matching</span>
                   <div className="mt-3 space-y-2">
                     {[
-                      { name: 'Conservative', desc: 'Qwen3-30B', score: executionResult.scores?.conservative, color: 'emerald', winner: false },
-                      { name: 'Volume Max', desc: 'GLM-5', score: executionResult.scores?.volume_max, color: 'amber', winner: false },
+                      { name: 'Conservative', desc: 'Qwen3-30B-A3B', score: executionResult.scores?.conservative, color: 'emerald', winner: false },
+                      { name: 'Volume Max', desc: 'GLM-5-FP8', score: executionResult.scores?.volume_max, color: 'amber', winner: false },
                       { name: 'Free Optimizer', desc: 'GPT-OSS-120B', score: executionResult.scores?.free_optimizer, color: 'purple', winner: true },
                     ].map(s => (
                       <div key={s.name} className="flex items-center justify-between text-xs">
@@ -1490,7 +1490,7 @@ export default function App() {
                   </div>
                   <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between text-[10px]">
                     <span className="font-mono text-neutral-600">Judge: fill_rate(40%) + spread(30%) + fairness(30%)</span>
-                    <span className="font-mono text-cyan-400/70">4 models × 4 TEE calls</span>
+                    <span className="font-mono text-cyan-400/70">3 strategies + 1 judge = 4 TEE calls</span>
                   </div>
                 </div>
 
