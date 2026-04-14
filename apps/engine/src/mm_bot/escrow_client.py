@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from decimal import ROUND_DOWN, Decimal
 
 from eth_account import Account
@@ -61,6 +62,8 @@ class MMEscrowClient:
             "true",
             "yes",
         )
+        self._tx_lock = threading.Lock()
+        self._local_nonce: int | None = None
 
     @property
     def enabled(self) -> bool:
@@ -89,6 +92,17 @@ class MMEscrowClient:
             )
         )
 
+    def _next_nonce(self, w3: Web3, address: str) -> int:
+        """로컬 nonce 카운터 사용, 체인보다 뒤처지면 체인 값으로 갱신."""
+        chain_nonce = w3.eth.get_transaction_count(
+            Web3.to_checksum_address(address), "pending"
+        )
+        if self._local_nonce is None or self._local_nonce < chain_nonce:
+            self._local_nonce = chain_nonce
+        nonce = self._local_nonce
+        self._local_nonce += 1
+        return nonce
+
     def _sign_and_send(self, tx: dict) -> str | None:
         assert self._pk is not None
         w3 = self._w3()
@@ -111,17 +125,18 @@ class MMEscrowClient:
         if cur >= need:
             return True
 
-        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address), "pending")
-        tx = c.functions.approve(Web3.to_checksum_address(spender), 2**256 - 1).build_transaction(
-            {
-                "chainId": BSC_CHAIN_ID,
-                "from": acct.address,
-                "nonce": nonce,
-                "gas": 100_000,
-                "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
-            }
-        )
-        return self._sign_and_send(tx) is not None
+        with self._tx_lock:
+            nonce = self._next_nonce(w3, acct.address)
+            tx = c.functions.approve(Web3.to_checksum_address(spender), 2**256 - 1).build_transaction(
+                {
+                    "chainId": BSC_CHAIN_ID,
+                    "from": acct.address,
+                    "nonce": nonce,
+                    "gas": 100_000,
+                    "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
+                }
+            )
+            return self._sign_and_send(tx) is not None
 
     def deposit(self, order_id_hex: str, token: str, amount_wei: int) -> str | None:
         if self._dry_run or not self._pk:
@@ -143,21 +158,22 @@ class MMEscrowClient:
             abi=DARKPOOL_ESCROW_ABI,
         )
         oid = to_bytes32(order_id_hex)
-        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address), "pending")
-        tx = esc.functions.deposit(
-            oid,
-            Web3.to_checksum_address(token),
-            amount_wei,
-        ).build_transaction(
-            {
-                "chainId": BSC_CHAIN_ID,
-                "from": acct.address,
-                "nonce": nonce,
-                "gas": 350_000,
-                "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
-            }
-        )
-        txh = self._sign_and_send(tx)
+        with self._tx_lock:
+            nonce = self._next_nonce(w3, acct.address)
+            tx = esc.functions.deposit(
+                oid,
+                Web3.to_checksum_address(token),
+                amount_wei,
+            ).build_transaction(
+                {
+                    "chainId": BSC_CHAIN_ID,
+                    "from": acct.address,
+                    "nonce": nonce,
+                    "gas": 350_000,
+                    "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
+                }
+            )
+            txh = self._sign_and_send(tx)
         if txh:
             logger.info("MM deposit 성공 order=%s tx=%s", order_id_hex[:8], txh[:18])
         return txh
@@ -175,14 +191,15 @@ class MMEscrowClient:
             abi=DARKPOOL_ESCROW_ABI,
         )
         oid = to_bytes32(order_id_hex)
-        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address), "pending")
-        tx = esc.functions.cancelOrder(oid).build_transaction(
-            {
-                "chainId": BSC_CHAIN_ID,
-                "from": acct.address,
-                "nonce": nonce,
-                "gas": 250_000,
-                "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
-            }
-        )
-        return self._sign_and_send(tx)
+        with self._tx_lock:
+            nonce = self._next_nonce(w3, acct.address)
+            tx = esc.functions.cancelOrder(oid).build_transaction(
+                {
+                    "chainId": BSC_CHAIN_ID,
+                    "from": acct.address,
+                    "nonce": nonce,
+                    "gas": 250_000,
+                    "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
+                }
+            )
+            return self._sign_and_send(tx)
