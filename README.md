@@ -1,9 +1,9 @@
-# 🌑 DarkPool Lite
+# 🌑 T-LAYER
 
 **MEV-Protected OTC Trading on BNB Chain, Powered by Competitive TEE Matching + AI**
 
 > Every on-chain order is public. Bots exploit it before you can blink.
-> DarkPool Lite fixes this.
+> T-LAYER fixes this.
 
 [![BuidlHack 2026](https://img.shields.io/badge/BuidlHack-2026-blue)]()
 [![BNB Chain](https://img.shields.io/badge/BNB_Chain-Testnet-F0B90B)]()
@@ -18,7 +18,7 @@ DeFi traders lose **$1.3B+** to MEV (Maximal Extractable Value) attacks annually
 
 ## The Solution
 
-DarkPool Lite is a **decentralized dark pool** for MEV-free OTC trading on BNB Chain. Three competing AI strategies match orders inside a **NEAR AI Trusted Execution Environment (TEE)**, a Judge AI picks the optimal result, and matched trades settle via **on-chain atomic swaps**. No one — not even the server operator — can see the order book or tamper with matching results.
+T-LAYER is a **decentralized dark pool** for MEV-free OTC trading on BNB Chain. Three competing AI strategies match orders inside a **NEAR AI Trusted Execution Environment (TEE)**, a Judge AI picks the optimal result, and matched trades settle via **on-chain atomic swaps**. No one — not even the server operator — can see the order book or tamper with matching results.
 
 ### Key Features
 
@@ -94,7 +94,7 @@ The TEE returns `"order-001 ↔ order-003 matched"` → Backend restores order I
 ## Monorepo Structure
 
 ```
-darkpool-lite/
+darkpool-lite/          # (branded as T-LAYER)
 ├── apps/
 │   ├── contracts/                # Solidity (Hardhat) — 32 tests
 │   │   ├── contracts/
@@ -105,10 +105,9 @@ darkpool-lite/
 │   ├── engine/                   # Python (FastAPI + NEAR AI TEE)
 │   │   └── src/
 │   │       ├── matching/
-│   │       │   ├── engine.py          # _dual_pass() → _competitive_match()
-│   │       │   ├── llm_engine.py      # LLM call functions (competitive 4-call)
+│   │       │   ├── engine.py          # _competitive_match() — 3 strategies + Judge
+│   │       │   ├── llm_engine.py      # TEE call functions (4 parallel calls)
 │   │       │   ├── prompt.py          # Strategy-specific system prompts
-│   │       │   ├── rules_engine.py    # Fallback rule-based matcher
 │   │       │   ├── runner.py          # Matching cycle orchestrator
 │   │       │   ├── validator.py       # Match result validation
 │   │       │   └── schema.py          # Data models
@@ -190,8 +189,8 @@ cp .env.example .env
 uv run uvicorn src.main:app --reload
 ```
 
-> **Without NEAR AI keys:** Demo still works — attestation shows "UNVERIFIED" and matching uses the rule engine fallback.
-> **With NEAR AI keys:** Attestation shows "VERIFIED" + competitive 3-strategy matching with Judge scoring + AI reasoning displayed in UI.
+> **NEAR AI keys required** for competitive TEE matching (3 strategies + Judge).
+> Attestation shows "VERIFIED" + AI reasoning displayed in UI.
 
 ### 4. Start the Frontend
 
@@ -233,7 +232,7 @@ npm run dev
 
 ## Why TEE over ZKP?
 
-| | TEE (DarkPool Lite) | ZKP |
+| | TEE (T-LAYER) | ZKP |
 |---|---|---|
 | Matching latency | Milliseconds | Seconds to minutes (proof generation) |
 | Multi-party matching | Native support | Extremely complex circuits |
@@ -245,7 +244,7 @@ npm run dev
 
 ## Market Maker Incentive
 
-Traditional DEX market makers lose spread profits to sandwich bots. In DarkPool Lite, order data lives exclusively inside the TEE — MEV is **structurally impossible**. This protected spread is the core incentive for MM participation.
+Traditional DEX market makers lose spread profits to sandwich bots. In T-LAYER, order data lives exclusively inside the TEE — MEV is **structurally impossible**. This protected spread is the core incentive for MM participation.
 
 **Roadmap:**
 - **MVP** — Team acts as MM for demo
