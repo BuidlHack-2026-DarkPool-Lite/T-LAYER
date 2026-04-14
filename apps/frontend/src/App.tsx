@@ -552,7 +552,7 @@ export default function App() {
           </div>
 
           <h1 className="text-4xl font-bold text-white mb-3 tracking-tight">
-            DarkPool <span className="text-neutral-500 font-normal">Lite</span>
+            T-LAYER
           </h1>
           <p className="text-neutral-400 text-lg mb-2">Private OTC Trading on BNB Chain</p>
           <p className="text-neutral-600 text-sm mb-10 max-w-sm">
@@ -598,7 +598,7 @@ export default function App() {
             <div className="w-9 h-9 rounded-lg bg-neutral-900 border border-neutral-800 flex items-center justify-center shadow-[0_0_12px_rgba(16,185,129,0.15)]">
               <GlitchEyeLogo />
             </div>
-            <span className="font-bold text-lg tracking-tight text-white">DarkPool <span className="text-neutral-500 font-normal">Lite</span></span>
+            <span className="font-bold text-lg tracking-tight text-white">T-LAYER</span>
           </div>
 
           {/* Navigation */}
@@ -1167,7 +1167,7 @@ export default function App() {
                     {[
                       { step: 1, label: 'Attest', color: 'emerald' },
                       { step: 2, label: 'Encrypt', color: 'emerald' },
-                      { step: 3, label: 'Match', color: 'emerald' },
+                      { step: 3, label: 'Compete', color: 'emerald' },
                       { step: 4, label: 'Sign', color: 'amber' },
                       { step: 5, label: 'Settle', color: 'amber' },
                     ].map(({ step, label, color }, i, arr) => (
@@ -1213,7 +1213,7 @@ export default function App() {
                       <div className="w-2 h-2 rounded-full bg-amber-500/40" />
                       <div className="w-2 h-2 rounded-full bg-emerald-500/40" />
                     </div>
-                    <span className="text-[11px] font-mono text-neutral-600">tee-enclave — darkpool-lite</span>
+                    <span className="text-[11px] font-mono text-neutral-600">tee-enclave — competitive matching</span>
                   </div>
                   {/* Terminal body */}
                   <div className="flex-1 px-4 py-3 space-y-1.5 overflow-y-auto font-mono text-xs">
@@ -1275,39 +1275,37 @@ export default function App() {
                         <span className="text-neutral-500">{selectedToken.pair} · {orderSide.toUpperCase()} · ██████</span>
                       </div>
                     )}
-                    {/* Step 4: Dual-pass matching */}
+                    {/* Step 4: Competitive TEE Matching — 3 strategies */}
                     {matchStep >= 3 && (
                       <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
                         <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">Rule engine</span>
-                        <span className="text-neutral-600">price-time FIFO</span>
-                        {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                        <span className="text-neutral-300">TEE Strategy 1</span>
+                        <span className="text-neutral-600">Conservative</span>
+                        {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">{executionResult?.scores?.conservative || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                      </div>
+                    )}
+                    {matchStep >= 3 && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-amber-400">{'>'}</span>
+                        <span className="text-neutral-300">TEE Strategy 2</span>
+                        <span className="text-neutral-600">Volume Max</span>
+                        {matchStep >= 4 ? <span className="text-amber-400 ml-auto">{executionResult?.scores?.volume_max || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />}
                       </div>
                     )}
                     {matchStep >= 3 && (
                       <div className="flex items-center gap-2">
                         <span className="text-purple-400">{'>'}</span>
-                        <span className="text-neutral-300">AI engine</span>
-                        <span className="text-neutral-600">NEAR AI Cloud</span>
-                        {matchStep >= 4 ? <span className="text-purple-400 ml-auto">MATCHED</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
+                        <span className="text-neutral-300">TEE Strategy 3</span>
+                        <span className="text-neutral-600">Free Optimizer</span>
+                        {matchStep >= 4 ? <span className="text-purple-400 ml-auto">{executionResult?.scores?.free_optimizer || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
                       </div>
                     )}
                     {matchStep >= 4 && (
                       <div className="flex items-center gap-2">
-                        <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-emerald-400/80">Optimal result selected</span>
-                        <span className="text-neutral-600">{matchReasoning?.engine === 'llm' ? 'AI engine won' : 'fill_volume comparison'}</span>
-                        <span className="text-emerald-500 ml-auto">OK</span>
-                      </div>
-                    )}
-                    {matchStep >= 4 && matchReasoning && (
-                      <div className="mt-1 px-4 py-2 bg-neutral-900/80 border border-neutral-800/50 rounded">
-                        <div className="flex items-center gap-1.5 mb-1">
-                          <span className={`text-[9px] font-mono uppercase tracking-wider ${matchReasoning.engine === 'llm' ? 'text-purple-400' : 'text-emerald-500/60'}`}>
-                            {matchReasoning.engine === 'llm' ? 'AI Analysis' : 'Engine Analysis'}
-                          </span>
-                        </div>
-                        <p className="text-[10px] text-neutral-400 leading-relaxed">{matchReasoning.reasoning}</p>
+                        <span className="text-cyan-400">{'>'}</span>
+                        <span className="text-cyan-400/80">Judge TEE</span>
+                        <span className="text-neutral-600">fill(40%)+spread(30%)+fair(30%)</span>
+                        <span className="text-cyan-400 ml-auto">WINNER: {executionResult?.judge_reasoning || 'Selected'}</span>
                       </div>
                     )}
                     {/* Step 5: Sign + Settle */}
@@ -1454,7 +1452,7 @@ export default function App() {
 
                     {/* DarkPool */}
                     <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-md p-3">
-                      <div className="text-[10px] font-mono text-emerald-400/60 mb-2">DarkPool Lite (TEE)</div>
+                      <div className="text-[10px] font-mono text-emerald-400/60 mb-2">T-LAYER (TEE)</div>
                       <div className="space-y-1.5">
                         <div className="flex justify-between text-xs">
                           <span className="text-neutral-500">Frontrun risk</span>
@@ -1480,30 +1478,29 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Matching Engine Result */}
+                {/* Competitive TEE Matching Result */}
                 <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
-                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Dual-Pass Matching</span>
+                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Competitive TEE Matching</span>
                   <div className="mt-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1 h-1 rounded-full bg-emerald-500" />
-                        <span className="text-neutral-400">Rule Engine</span>
-                        <span className="text-neutral-600 font-mono">price-time FIFO</span>
+                    {[
+                      { name: 'Conservative', desc: 'price quality first', score: executionResult.scores?.conservative, color: 'emerald', winner: false },
+                      { name: 'Volume Max', desc: 'max fill rate', score: executionResult.scores?.volume_max, color: 'amber', winner: false },
+                      { name: 'Free Optimizer', desc: 'LLM optimization', score: executionResult.scores?.free_optimizer, color: 'purple', winner: true },
+                    ].map(s => (
+                      <div key={s.name} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <div className={`w-1 h-1 rounded-full bg-${s.color}-500`} />
+                          <span className={s.winner ? 'text-cyan-400 font-bold' : 'text-neutral-400'}>{s.name}</span>
+                          <span className="text-neutral-600 font-mono">{s.desc}</span>
+                          {s.winner && <span className="text-[9px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono">WINNER</span>}
+                        </div>
+                        <span className={`font-mono ${s.winner ? 'text-cyan-400 font-bold' : 'text-neutral-500'}`}>{s.score || '—'}</span>
                       </div>
-                      <span className="font-mono text-neutral-500">{executionResult.amount} {selectedToken.symbol}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2">
-                        <div className="w-1 h-1 rounded-full bg-purple-500" />
-                        <span className="text-neutral-400">NEAR AI Cloud</span>
-                        <span className="text-neutral-600 font-mono">LLM optimization</span>
-                      </div>
-                      <span className="font-mono text-purple-400">{executionResult.amount} {selectedToken.symbol}</span>
-                    </div>
+                    ))}
                   </div>
                   <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between text-[10px]">
-                    <span className="font-mono text-neutral-600">Selected: higher fill volume</span>
-                    <span className="font-mono text-purple-400/70">via NEAR AI</span>
+                    <span className="font-mono text-neutral-600">Judge: fill_rate(40%) + spread(30%) + fairness(30%)</span>
+                    <span className="font-mono text-cyan-400/70">DeepSeek-V3.1 × 4 TEE calls</span>
                   </div>
                 </div>
 

@@ -41,6 +41,8 @@ async def run_matching_cycle(
             "results": outcomes,
             "engine_used": engine.last_engine_used,
             "reasoning": engine.last_reasoning,
+            "scores": engine.last_scores,
+            "judge_reasoning": engine.last_judge_reasoning,
         })
 
         submitted = [o for o in outcomes if o.get("tx_hash")]
