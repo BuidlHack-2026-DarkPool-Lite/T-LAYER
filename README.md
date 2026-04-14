@@ -63,14 +63,14 @@ T-LAYER is a **decentralized dark pool** for MEV-free OTC trading on BNB Chain. 
 
 ### How the 4 TEE Calls Work
 
-All calls run on **DeepSeek-V3.1** inside the same NEAR AI TEE. Only the prompt differs.
+Each role runs on a **different TEE-protected model** inside NEAR AI Cloud for maximum diversity.
 
-| TEE Call | Strategy | Approach |
-|----------|----------|----------|
-| **Call 1: Conservative** | Safe matching | Match by smallest price gap first. If uncertain, don't match. |
-| **Call 2: Volume Max** | Max fill rate | Fill as many orders as possible. Aggressive partial fills. |
-| **Call 3: Free Optimizer** | LLM decides | Balance fill rate, price quality, and fairness holistically. |
-| **Call 4: Judge** | Score & select | Evaluate all 3 results: Fill Rate (40%) + Spread (30%) + Fairness (30%). Pick the winner. |
+| TEE Call | Strategy | Model | Approach |
+|----------|----------|-------|----------|
+| **Call 1: Conservative** | Safe matching | Qwen3-30B | Match by smallest price gap first. If uncertain, don't match. |
+| **Call 2: Volume Max** | Max fill rate | GLM-5 | Fill as many orders as possible. Aggressive partial fills. |
+| **Call 3: Free Optimizer** | LLM decides | GPT-OSS-120B | Balance fill rate, price quality, and fairness holistically. |
+| **Call 4: Judge** | Score & select | Qwen3.5-122B | Evaluate all 3 results: Fill Rate (40%) + Spread (30%) + Fairness (30%). Pick the winner. |
 
 ### Why Competitive > Single Matching
 
@@ -259,7 +259,7 @@ Traditional DEX market makers lose spread profits to sandwich bots. In T-LAYER, 
 |-------|------------|
 | Smart Contract | Solidity (Hardhat) — BSC Testnet |
 | TEE Engine | Python, FastAPI, NEAR AI Cloud TEE |
-| AI Matching | DeepSeek-V3.1 × 4 calls (3 strategies + 1 judge) |
+| AI Matching | 4 TEE models: Qwen3-30B, GLM-5, GPT-OSS-120B, Qwen3.5-122B |
 | AI Pricing | Multi-source aggregation (PancakeSwap, Binance) |
 | Frontend | React, TypeScript, Vite, wagmi, ethers.js |
 | Verification | NEAR AI attestation + NVIDIA GPU attestation |
