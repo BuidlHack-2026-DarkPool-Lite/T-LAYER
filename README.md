@@ -94,7 +94,7 @@ The TEE returns `"order-001 ↔ order-003 matched"` → Backend restores order I
 ## Monorepo Structure
 
 ```
-darkpool-lite/          # (branded as T-LAYER)
+T-Layer/
 ├── apps/
 │   ├── contracts/                # Solidity (Hardhat) — 32 tests
 │   │   ├── contracts/
@@ -151,8 +151,8 @@ darkpool-lite/          # (branded as T-LAYER)
 ### 1. Clone & Install
 
 ```bash
-git clone https://github.com/BuidlHack-2026-DarkPool-Lite/darkpool-lite.git
-cd darkpool-lite
+git clone https://github.com/BuidlHack-2026-DarkPool-Lite/T-Layer.git
+cd T-Layer
 ```
 
 ### 2. Deploy Contracts

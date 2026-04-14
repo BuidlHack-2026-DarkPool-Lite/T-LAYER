@@ -92,10 +92,7 @@ VITE_TOKEN_XRP=
 
 | Repo | Description |
 |------|-------------|
-| [dark-pool-contracts](https://github.com/BuidlHack-2026-DarkPool-Lite/dark-pool-contracts) | DarkPoolEscrow Solidity contract |
-| [darkpool-lite-engine](https://github.com/BuidlHack-2026-DarkPool-Lite/darkpool-lite-engine) | FastAPI backend + TEE signing |
-| [darkpool-lite-ai-matching](https://github.com/BuidlHack-2026-DarkPool-Lite/darkpool-lite-ai-matching) | Multi-source pricing + NEAR AI matching |
-| [darkpool-lite-TEE](https://github.com/BuidlHack-2026-DarkPool-Lite/darkpool-lite-TEE) | TEE rule-based matching engine |
+| [T-Layer](https://github.com/BuidlHack-2026-DarkPool-Lite/T-Layer) | Monorepo (engine + frontend + contracts) |
 
 ## License
 
