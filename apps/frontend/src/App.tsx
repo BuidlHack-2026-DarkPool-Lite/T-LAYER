@@ -273,7 +273,7 @@ export default function App() {
               // AI 매칭 근거 저장
               if (event.reasoning) {
                 setMatchReasoning({
-                  engine: event.engine_used || 'rules',
+                  engine: event.engine_used || 'unknown',
                   reasoning: event.reasoning,
                 });
               }
@@ -1542,8 +1542,8 @@ export default function App() {
                   <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Matching Analysis</span>
-                      <span className={`text-[9px] font-mono ${matchReasoning.engine === 'llm' ? 'text-purple-400/60' : 'text-emerald-500/60'}`}>
-                        {matchReasoning.engine === 'llm' ? 'AI engine' : 'rules engine'}
+                      <span className="text-[9px] font-mono text-purple-400/60">
+                        {matchReasoning.engine === 'conservative' ? 'Conservative' : matchReasoning.engine === 'volume_max' ? 'Volume Max' : matchReasoning.engine === 'free_optimizer' ? 'Free Optimizer' : 'TEE Strategy'}
                       </span>
                     </div>
                     <p className="mt-2 text-xs text-neutral-400 leading-relaxed">{matchReasoning.reasoning}</p>
