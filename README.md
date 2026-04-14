@@ -274,9 +274,9 @@ Built at **BuidlHack 2026** — BNB Chain + NEAR AI Track.
 | Name | Role | Focus |
 |------|------|-------|
 | Daeyun | PM / Pitch | Product strategy + pitch deck + submission |
-| Hyunseung | Lead / TEE Backend | NEAR AI Cloud + matching engine |
+| Hyeonseung | Lead / TEE Backend | NEAR AI Cloud + matching engine |
 | Jinsung | Frontend | wagmi + React UX |
-| Kiho | AI Matching | Price feed + optimization |
+| Giho | AI Matching | Price feed + optimization |
 | Seungjae | Contract Lead | Solidity escrow + atomic swap |
 
 ---
