@@ -1,4 +1,4 @@
-"""DarkPool Lite TEE Backend — FastAPI entrypoint."""
+"""T-LAYER TEE Backend — FastAPI entrypoint."""
 
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="DarkPool Lite TEE Engine",
+    title="T-LAYER TEE Engine",
     description="TEE 기반 프라이버시 OTC 매칭 엔진",
     version="0.1.0",
     lifespan=lifespan,

@@ -1,8 +1,8 @@
-# DarkPool Lite — Frontend
+# T-LAYER — Frontend
 
 > TEE-based Private OTC Trading Protocol on BNB Chain
 
-DarkPool Lite의 프론트엔드 애플리케이션입니다. React + TypeScript + Vite로 구축되었으며, MetaMask 지갑 연결, DarkPoolEscrow 스마트 컨트랙트 연동, 백엔드 매칭 엔진 API 통신을 지원합니다.
+T-LAYER의 프론트엔드 애플리케이션입니다. React + TypeScript + Vite로 구축되었으며, MetaMask 지갑 연결, DarkPoolEscrow 스마트 컨트랙트 연동, 백엔드 매칭 엔진 API 통신을 지원합니다.
 
 ## Tech Stack
 

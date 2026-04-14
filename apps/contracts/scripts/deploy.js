@@ -1,5 +1,5 @@
 /**
- * DarkPool Lite – Deployment Script
+ * T-LAYER – Deployment Script
  *
  * Usage:
  *   npx hardhat run scripts/deploy.js --network bscTestnet
@@ -32,7 +32,7 @@ async function main() {
   const balance = await ethers.provider.getBalance(deployer.address);
 
   console.log("═══════════════════════════════════════");
-  console.log("  DarkPool Lite – Contract Deployment  ");
+  console.log("  T-LAYER – Contract Deployment  ");
   console.log("═══════════════════════════════════════");
   console.log(`Network:         ${network.name} (chainId ${network.config.chainId})`);
   console.log(`Deployer:        ${deployer.address}`);

@@ -1,7 +1,7 @@
 {
   "name": "darkpool-contracts",
   "version": "1.0.0",
-  "description": "DarkPool Lite – TEE-based private OTC swap contracts on BSC",
+  "description": "T-LAYER – TEE-based private OTC swap contracts on BSC",
   "scripts": {
     "compile": "hardhat compile",
     "postcompile": "node ../../tools/sync-abi.mjs",

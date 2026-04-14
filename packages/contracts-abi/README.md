@@ -1,6 +1,6 @@
 # contracts-abi
 
-DarkPool Lite 컨트랙트의 **단일 ABI 진실원**.
+T-LAYER 컨트랙트의 **단일 ABI 진실원**.
 
 ## 무엇
 

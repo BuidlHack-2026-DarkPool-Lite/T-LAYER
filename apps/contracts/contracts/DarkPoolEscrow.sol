@@ -10,7 +10,7 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 /**
  * @title  DarkPoolEscrow  (v2 — 선예치 + 부분체결)
- * @notice Privacy-preserving OTC escrow for DarkPool Lite.
+ * @notice Privacy-preserving OTC escrow for T-LAYER.
  *
  * v2 changes vs v1:
  *  - Pre-deposit: users deposit BEFORE matching (선예치).
