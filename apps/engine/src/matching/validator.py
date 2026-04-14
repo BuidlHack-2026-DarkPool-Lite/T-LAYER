@@ -89,20 +89,33 @@ def validate_matching_result(
         if taker.side != "buy":
             rejected.append({"match": raw, "reason": "taker 주문은 buy 이어야 함"})
             continue
-
-        if price_dec > taker.limit_price:
-            rejected.append({
-                "match": raw,
-                "reason": f"체결가({price_dec})가 매수 limit_price({taker.limit_price}) 초과",
-            })
+        if maker.wallet_address.lower() == taker.wallet_address.lower():
+            rejected.append({"match": raw, "reason": "같은 지갑 간 매칭 불가 (wash trading)"})
             continue
 
-        if price_dec < maker.limit_price:
-            rejected.append({
-                "match": raw,
-                "reason": f"체결가({price_dec})가 매도 limit_price({maker.limit_price}) 미만",
-            })
-            continue
+        # 체결가 보정: LLM이 잘못 계산해도 매수/매도 limit이 호환되면 재계산
+        fair_dec = Decimal(str(fair_price))
+        if price_dec > taker.limit_price or price_dec < maker.limit_price:
+            # limit이 호환되는지 먼저 확인 (buy.limit >= sell.limit)
+            if taker.limit_price < maker.limit_price:
+                rejected.append({
+                    "match": raw,
+                    "reason": (
+                        f"매수 limit({taker.limit_price}) < 매도 limit({maker.limit_price}), "
+                        "가격 비호환"
+                    ),
+                })
+                continue
+            # 프롬프트 규칙에 따라 체결가 재계산
+            if maker.limit_price <= fair_dec <= taker.limit_price:
+                price_dec = fair_dec
+            else:
+                price_dec = (taker.limit_price + maker.limit_price) / 2
+            import logging as _log
+            _log.getLogger(__name__).info(
+                "체결가 보정: LLM=%s → 재계산=%s (fair=%s, buy_limit=%s, sell_limit=%s)",
+                raw_price, price_dec, fair_dec, taker.limit_price, maker.limit_price,
+            )
 
         if fill_dec <= 0:
             rejected.append({

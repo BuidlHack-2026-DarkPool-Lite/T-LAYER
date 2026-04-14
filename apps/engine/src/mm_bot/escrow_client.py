@@ -111,7 +111,7 @@ class MMEscrowClient:
         if cur >= need:
             return True
 
-        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address))
+        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address), "pending")
         tx = c.functions.approve(Web3.to_checksum_address(spender), 2**256 - 1).build_transaction(
             {
                 "chainId": BSC_CHAIN_ID,
@@ -143,7 +143,7 @@ class MMEscrowClient:
             abi=DARKPOOL_ESCROW_ABI,
         )
         oid = to_bytes32(order_id_hex)
-        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address))
+        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address), "pending")
         tx = esc.functions.deposit(
             oid,
             Web3.to_checksum_address(token),
@@ -157,7 +157,10 @@ class MMEscrowClient:
                 "gasPrice": w3.to_wei(self._gas_gwei, "gwei"),
             }
         )
-        return self._sign_and_send(tx)
+        txh = self._sign_and_send(tx)
+        if txh:
+            logger.info("MM deposit 성공 order=%s tx=%s", order_id_hex[:8], txh[:18])
+        return txh
 
     def cancel_order(self, order_id_hex: str) -> str | None:
         if self._dry_run or not self._pk:
@@ -172,7 +175,7 @@ class MMEscrowClient:
             abi=DARKPOOL_ESCROW_ABI,
         )
         oid = to_bytes32(order_id_hex)
-        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address))
+        nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(acct.address), "pending")
         tx = esc.functions.cancelOrder(oid).build_transaction(
             {
                 "chainId": BSC_CHAIN_ID,

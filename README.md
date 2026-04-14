@@ -133,9 +133,9 @@ T-Layer/
 
 | Contract | Address |
 |----------|---------|
-| **DarkPoolEscrow** | `0x34336C18E764B2ae28d28E90E040E57d6C74DAce` |
-| **TestToken tUSDT** | `0xb8880f6c5D256263576266d90E9C20e85fD9F40E` |
-| **TestToken tBNBT** | `0x70F2b66CD95F82389c3382c6FDB7E0e4A2CA4f62` |
+| **DarkPoolEscrow** | `0x975A48FF9d390fD1866523Eb84b78Bdc9796d307` |
+| **TestToken tUSDT** | `0x66D80B391C20e61F870C2Bd5a9763D77D4859684` |
+| **TestToken tBNBT** | `0x506B8ce6d684B6b852600dd79DE587cF30395633` |
 
 ---
 

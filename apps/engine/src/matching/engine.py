@@ -49,6 +49,7 @@ class MatchingEngine:
         self.last_reasoning: str = ""
         self.last_scores: list[dict] | None = None
         self.last_judge_reasoning: str = ""
+        self.last_tee_verifications: list[dict] = []
 
     async def run_matching_cycle(self, token_pair: str) -> list[MatchResult]:
         """매칭 사이클 실행."""
@@ -93,9 +94,42 @@ class MatchingEngine:
     ) -> list[MatchResult]:
         """3개 TEE 전략 병렬 경쟁 → Judge 선택 → OrderBook 반영."""
 
-        orders = self._book.active_orders(token_pair, "buy") + self._book.active_orders(
-            token_pair, "sell"
+        buys = self._book.active_orders(token_pair, "buy")
+        sells = self._book.active_orders(token_pair, "sell")
+
+        # ── Wash-trade 사전 필터 ──────────────────────────────
+        # 같은 지갑이 buy+sell 양쪽에 있으면 TEE가 자기매칭함.
+        # dual-side 지갑의 주문 중, 다른 지갑이 이미 있는 쪽을 제거.
+        wallet_buys = {o.wallet_address.lower() for o in buys}
+        wallet_sells = {o.wallet_address.lower() for o in sells}
+        dual_wallets = wallet_buys & wallet_sells
+
+        if dual_wallets:
+            other_buy_exists = bool(wallet_buys - dual_wallets)
+            other_sell_exists = bool(wallet_sells - dual_wallets)
+
+            if other_buy_exists:
+                # 다른 지갑의 buy가 있으므로 dual 지갑의 buy 제거 (sell 유지)
+                buys = [o for o in buys if o.wallet_address.lower() not in dual_wallets]
+            if other_sell_exists:
+                # 다른 지갑의 sell이 있으므로 dual 지갑의 sell 제거 (buy 유지)
+                sells = [o for o in sells if o.wallet_address.lower() not in dual_wallets]
+
+            logger.info(
+                "Wash-trade 필터: dual=%s, 필터 후 buy=%d, sell=%d",
+                [w[:10] for w in dual_wallets], len(buys), len(sells),
+            )
+
+        orders = buys + sells
+        logger.info(
+            "매칭 오더북: buy=%d건, sell=%d건, 주문=%s",
+            len(buys), len(sells),
+            [(o.order_id[:8], o.side, float(o.amount), float(o.limit_price)) for o in orders],
         )
+        if not buys or not sells:
+            logger.info("매칭 불가: buy=%d, sell=%d — 양쪽 필요", len(buys), len(sells))
+            return []
+
         orders_snapshot = copy.deepcopy(orders)
 
         # ── Step 1: 3개 전략 병렬 실행 (모두 NEAR AI TEE) ──
@@ -147,9 +181,11 @@ class MatchingEngine:
             self.last_reasoning = "All 3 strategies failed"
             self.last_scores = None
             self.last_judge_reasoning = ""
+            self.last_tee_verifications = []
             return []
 
         # 유효 결과가 1개면 Judge 없이 바로 채택
+        verdict: dict | None = None
         if len(valid_results) == 1:
             winner_result = valid_results[0]
             winner_strategy = winner_result.get("_strategy", "unknown")
@@ -185,6 +221,23 @@ class MatchingEngine:
                 self.last_scores = verdict.get("scores", [])
                 self.last_judge_reasoning = verdict.get("reasoning", "")
 
+                # Judge가 0건 매칭 전략을 골랐는데 다른 전략에 매칭이 있으면 override
+                winner_matches = winner_result.get("matches", [])
+                if not winner_matches:
+                    alt = [r for r in valid_results if r.get("matches")]
+                    if alt:
+                        winner_result = max(
+                            alt,
+                            key=lambda r: sum(
+                                m.get("fill_amount", 0) for m in r.get("matches", [])
+                            ),
+                        )
+                        winner_strategy = winner_result.get("_strategy", "unknown")
+                        logger.warning(
+                            "Judge 선택(%s) 0건 매칭 → %s로 override",
+                            _STRATEGY_NAMES[winner_idx], winner_strategy,
+                        )
+
                 logger.info(
                     "Judge 결과: winner=%s (idx=%d), scores=%s",
                     winner_strategy,
@@ -197,6 +250,12 @@ class MatchingEngine:
             winner_result, orders_snapshot, fair_price, matching_state.prev_fair_price
         )
 
+        logger.info(
+            "Validator: accepted=%d, rejected=%d, round_held=%s, winner_matches=%s",
+            len(validated.accepted), len(validated.rejected), validated.round_held,
+            winner_result.get("matches", []),
+        )
+
         applied: list[MatchResult] = []
         if not validated.round_held and len(validated.rejected) == 0:
             for m in validated.accepted:
@@ -207,10 +266,33 @@ class MatchingEngine:
         self.last_engine_used = winner_strategy
         self.last_reasoning = winner_result.get("reasoning", "")
 
+        # TEE 서명 검증 결과 수집 (3개 전략 + Judge)
+        tee_verifications = []
+        for r in raw_results:
+            v = r.get("_tee_verification")
+            if v:
+                tee_verifications.append({
+                    "strategy": r.get("_strategy", "unknown"),
+                    "model": r.get("_model", ""),
+                    **v,
+                })
+        # Judge 결과도 수집 (verdict가 존재하고 에러가 아닌 경우)
+        if verdict is not None and not verdict.get("error"):
+            jv = verdict.get("_tee_verification")
+            if jv:
+                tee_verifications.append({
+                    "strategy": "judge",
+                    "model": verdict.get("_model", ""),
+                    **jv,
+                })
+        self.last_tee_verifications = tee_verifications
+
         logger.info(
-            "경쟁 매칭 완료: %s 채택, %d건 체결",
+            "경쟁 매칭 완료: %s 채택, %d건 체결, TEE 검증 %d/%d",
             winner_strategy,
             len(applied),
+            sum(1 for v in tee_verifications if v.get("verified")),
+            len(tee_verifications),
         )
 
         return applied

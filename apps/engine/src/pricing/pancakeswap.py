@@ -1,95 +1,92 @@
-"""PancakeSwap V3 Subgraph 가격 수집 모듈."""
+"""PancakeSwap V3 온체인 가격 — slot0() 직접 호출."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Final
 
-import httpx
+from web3 import Web3
 
 logger = logging.getLogger(__name__)
 
-SUBGRAPH_URL: Final[str] = "https://api.thegraph.com/subgraphs/name/pancakeswap/exchange-v3-bsc"
-REQUEST_TIMEOUT_SEC: Final[float] = 3.0
+# BSC Mainnet (읽기 전용)
+_BSC_MAINNET_RPC: Final[str] = "https://bsc-dataseed1.binance.org"
 
-WBNB: Final[str] = "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
-USDT_BSC: Final[str] = "0x55d398326f99059fF775485246999027B3197955"
-
-_PAIR_TOKENS: Final[dict[str, tuple[str, str]]] = {
-    "BNB/USDT": (WBNB, USDT_BSC),
-    "WBNB/USDT": (WBNB, USDT_BSC),
+# PancakeSwap V3 Pool: WBNB/USDT (fee 500 — 가장 유동성 높은 tier)
+_POOL_ADDRESSES: Final[dict[str, str]] = {
+    "BNB/USDT": "0x36696169C63e42cd08ce11f5deeBbCeBae652050",
 }
 
-_POOLS_QUERY: Final[str] = """
-query PancakeV3TopPoolPrice($token0: String!, $token1: String!) {
-  pools(
-    where: { token0: $token0, token1: $token1 }
-    orderBy: totalValueLockedUSD
-    orderDirection: desc
-    first: 1
-  ) {
-    token0Price
-    token1Price
-    totalValueLockedUSD
-  }
-}
-"""
+_SLOT0_ABI = [
+    {
+        "name": "slot0",
+        "type": "function",
+        "inputs": [],
+        "outputs": [
+            {"name": "sqrtPriceX96", "type": "uint160"},
+            {"name": "tick", "type": "int24"},
+            {"name": "observationIndex", "type": "uint16"},
+            {"name": "observationCardinality", "type": "uint16"},
+            {"name": "observationCardinalityNext", "type": "uint16"},
+            {"name": "feeProtocol", "type": "uint32"},
+            {"name": "unlocked", "type": "bool"},
+        ],
+        "stateMutability": "view",
+    }
+]
+
+_Q96 = 2**96
 
 
-def _normalize_token_pair(token_pair: str) -> str | None:
-    key = token_pair.strip().upper().replace(" ", "")
-    if key in _PAIR_TOKENS:
+def _normalize_pair(token_pair: str) -> str | None:
+    key = token_pair.strip().upper().replace(" ", "").replace("-", "/")
+    if key in _POOL_ADDRESSES:
         return key
-    if key == "BNB-USDT":
+    if key == "WBNB/USDT":
         return "BNB/USDT"
     return None
 
 
+def _sqrt_price_to_price(sqrt_price_x96: int) -> float:
+    """sqrtPriceX96 → token1/token0 가격.
+
+    WBNB(token0, 18 dec) / USDT(token1, 18 dec) 이므로
+    price = (sqrtPriceX96 / 2^96)^2 → USDT per BNB = 1/price.
+    """
+    ratio = (sqrt_price_x96 / _Q96) ** 2
+    if ratio <= 0:
+        return 0.0
+    return 1.0 / ratio  # USDT per BNB
+
+
 async def fetch_pancakeswap_price(token_pair: str) -> float | None:
-    """WBNB/USDT V3 풀 중 TVL 최상위 1개의 token0Price를 반환한다."""
-    norm = _normalize_token_pair(token_pair)
+    """PancakeSwap V3 Pool의 slot0()에서 현재 가격을 읽는다."""
+    norm = _normalize_pair(token_pair)
     if norm is None:
         logger.warning("unsupported token_pair for PancakeSwap feed: %r", token_pair)
         return None
 
-    token0, token1 = _PAIR_TOKENS[norm]
-    variables = {
-        "token0": token0.lower(),
-        "token1": token1.lower(),
-    }
-
-    payload = {"query": _POOLS_QUERY, "variables": variables}
+    pool_addr = _POOL_ADDRESSES[norm]
 
     try:
-        async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT_SEC) as client:
-            response = await client.post(SUBGRAPH_URL, json=payload)
-            response.raise_for_status()
-            body = response.json()
-    except Exception:
-        logger.exception("PancakeSwap Subgraph request failed for pair %s", norm)
-        return None
-
-    if body.get("errors"):
-        logger.warning(
-            "PancakeSwap Subgraph GraphQL errors for %s: %s",
-            norm,
-            body["errors"],
+        w3 = Web3(
+            Web3.HTTPProvider(_BSC_MAINNET_RPC, request_kwargs={"timeout": 10})
         )
-        return None
+        contract = w3.eth.contract(
+            address=Web3.to_checksum_address(pool_addr),
+            abi=_SLOT0_ABI,
+        )
+        data = await asyncio.to_thread(contract.functions.slot0().call)
+        sqrt_price_x96 = data[0]
 
-    data = body.get("data") or {}
-    pools = data.get("pools")
-    if not pools:
-        logger.warning("PancakeSwap Subgraph returned no pools for %s", norm)
-        return None
+        if sqrt_price_x96 == 0:
+            logger.warning("PancakeSwap slot0 returned zero sqrtPriceX96 for %s", norm)
+            return None
 
-    raw_price = pools[0].get("token0Price")
-    if raw_price is None:
-        logger.warning("PancakeSwap pool missing token0Price for %s", norm)
-        return None
-
-    try:
-        return float(raw_price)
-    except (TypeError, ValueError):
-        logger.exception("invalid token0Price from PancakeSwap for %s: %r", norm, raw_price)
+        price = _sqrt_price_to_price(sqrt_price_x96)
+        logger.info("PancakeSwap %s: $%.4f (onchain slot0)", norm, price)
+        return price
+    except Exception:
+        logger.exception("PancakeSwap onchain price fetch failed: %s", norm)
         return None

@@ -19,8 +19,10 @@ class PricingQuoteResponse(BaseModel):
     request_id: str | None = None
     mid_price: float | None = Field(default=None)
     spread: float | None = Field(default=None)
+    chainlink_mid: float | None = Field(default=None)
     pancake_mid: float | None = Field(default=None)
     binance_mid: float | None = Field(default=None)
+    sources_used: int | None = Field(default=None)
     outlier_downgraded: bool | None = Field(default=None)
     timestamp: float = Field(...)
     max_slippage_bps: int | None = Field(default=None)

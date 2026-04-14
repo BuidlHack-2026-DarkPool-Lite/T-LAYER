@@ -1,19 +1,22 @@
-"""복수 소스 가중 평균 산출, 이상치 시 단일 소스 강등."""
+"""3중 오라클: Chainlink + Binance + PancakeSwap → median 기반 공정가."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
 import os
+import statistics
 from dataclasses import dataclass
 
 from src.pricing.binance import fetch_binance_price
+from src.pricing.chainlink import fetch_chainlink_price
 from src.pricing.pancakeswap import fetch_pancakeswap_price
 
 logger = logging.getLogger(__name__)
 
-PANCAKE_WEIGHT = 0.6
-BINANCE_WEIGHT = 0.4
+
+def _skip_pancake() -> bool:
+    return os.environ.get("SKIP_PANCAKESWAP", "").lower() in ("1", "true", "yes")
 
 
 def _outlier_threshold_pct() -> float:
@@ -23,84 +26,91 @@ def _outlier_threshold_pct() -> float:
         return 5.0
 
 
-def _outlier_primary() -> str:
-    v = os.environ.get("PRICE_OUTLIER_PRIMARY", "binance").strip().lower()
-    return v if v in ("binance", "pancake") else "binance"
-
-
 @dataclass(frozen=True)
 class PriceAggregateResult:
     mid: float | None
     spread: float | None
-    pancake: float | None
+    chainlink: float | None
     binance: float | None
+    pancake: float | None
     outlier_downgraded: bool
+    sources_used: int
 
 
-async def _fetch_source_prices(token_pair: str) -> tuple[float | None, float | None]:
-    return await asyncio.gather(
-        fetch_pancakeswap_price(token_pair),
-        fetch_binance_price(token_pair),
+async def _fetch_all(token_pair: str) -> tuple[float | None, float | None, float | None]:
+    """Chainlink, Binance, PancakeSwap 동시 조회."""
+    chainlink_t = fetch_chainlink_price(token_pair)
+    binance_t = fetch_binance_price(token_pair)
+
+    if _skip_pancake():
+        chainlink, binance = await asyncio.gather(chainlink_t, binance_t)
+        return chainlink, binance, None
+
+    chainlink, binance, pancake = await asyncio.gather(
+        chainlink_t, binance_t, fetch_pancakeswap_price(token_pair),
     )
+    return chainlink, binance, pancake
 
 
 def aggregate_from_sources(
-    pancake: float | None,
+    chainlink: float | None,
     binance: float | None,
+    pancake: float | None,
 ) -> PriceAggregateResult:
-    """두 소스가 모두 있을 때 괴리가 임계값을 넘으면 한 소스만 사용한다."""
-    if pancake is not None and binance is not None:
-        spread = abs(pancake - binance)
-        lo = min(pancake, binance)
-        diff_pct = (spread / lo * 100.0) if lo > 0 else 0.0
-        threshold = _outlier_threshold_pct()
-        if diff_pct > threshold:
-            primary = _outlier_primary()
-            if primary == "binance":
-                chosen = binance
-                logger.warning(
-                    "price outlier downgrade: using Binance only (diff=%.2f%% > %.2f%%)",
-                    diff_pct,
-                    threshold,
-                )
-            else:
-                chosen = pancake
-                logger.warning(
-                    "price outlier downgrade: using PancakeSwap only (diff=%.2f%% > %.2f%%)",
-                    diff_pct,
-                    threshold,
-                )
-            return PriceAggregateResult(
-                mid=chosen,
-                spread=spread,
-                pancake=pancake,
-                binance=binance,
-                outlier_downgraded=True,
+    """3중 소스 median 집계. 2개 이상이면 median, 1개면 그대로."""
+    prices = [p for p in (chainlink, binance, pancake) if p is not None]
+    n = len(prices)
+
+    if n == 0:
+        return PriceAggregateResult(
+            mid=None, spread=None, chainlink=None, binance=None,
+            pancake=pancake, outlier_downgraded=False, sources_used=0,
+        )
+
+    if n == 1:
+        return PriceAggregateResult(
+            mid=prices[0], spread=None, chainlink=chainlink,
+            binance=binance, pancake=pancake,
+            outlier_downgraded=False, sources_used=1,
+        )
+
+    # 이상치 제거: median 기준 threshold 초과 소스 제외
+    median_price = statistics.median(prices)
+    threshold = _outlier_threshold_pct()
+    filtered = []
+    downgraded = False
+
+    for p in prices:
+        diff_pct = abs(p - median_price) / median_price * 100.0 if median_price > 0 else 0.0
+        if diff_pct <= threshold:
+            filtered.append(p)
+        else:
+            downgraded = True
+            logger.warning(
+                "Price outlier removed: %.4f (diff=%.2f%% from median %.4f)",
+                p, diff_pct, median_price,
             )
-        mid = pancake * PANCAKE_WEIGHT + binance * BINANCE_WEIGHT
-        return PriceAggregateResult(
-            mid=mid,
-            spread=spread,
-            pancake=pancake,
-            binance=binance,
-            outlier_downgraded=False,
-        )
-    if pancake is not None:
-        return PriceAggregateResult(
-            mid=pancake, spread=None, pancake=pancake, binance=None, outlier_downgraded=False
-        )
-    if binance is not None:
-        return PriceAggregateResult(
-            mid=binance, spread=None, pancake=None, binance=binance, outlier_downgraded=False
-        )
+
+    if not filtered:
+        filtered = prices  # 전부 이상치면 그냥 다 쓰기
+
+    mid = statistics.median(filtered)
+    spread = max(prices) - min(prices) if n >= 2 else None
+
     return PriceAggregateResult(
-        mid=None, spread=None, pancake=None, binance=None, outlier_downgraded=False
+        mid=mid,
+        spread=spread,
+        chainlink=chainlink,
+        binance=binance,
+        pancake=pancake,
+        outlier_downgraded=downgraded,
+        sources_used=len(filtered),
     )
 
 
 async def aggregate_prices(token_pair: str) -> PriceAggregateResult:
-    pancake, binance = await _fetch_source_prices(token_pair)
-    return aggregate_from_sources(pancake, binance)
+    chainlink, binance, pancake = await _fetch_all(token_pair)
+    return aggregate_from_sources(chainlink, binance, pancake)
 
 
 async def get_fair_price(token_pair: str) -> float | None:

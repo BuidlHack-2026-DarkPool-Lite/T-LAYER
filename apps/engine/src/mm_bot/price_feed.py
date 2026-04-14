@@ -191,10 +191,17 @@ class PriceFeedListener:
         return await fetch_binance_price(token_pair)
 
     async def get_mid_price(self, token_pair: str) -> MidPriceResult:
-        pancake, binance = await asyncio.gather(
-            fetch_pancakeswap_price(token_pair),
-            self._fetch_binance(token_pair),
-        )
+        if self._wp <= 0:
+            pancake = None
+            binance = await self._fetch_binance(token_pair)
+        elif self._wb <= 0:
+            pancake = await fetch_pancakeswap_price(token_pair)
+            binance = None
+        else:
+            pancake, binance = await asyncio.gather(
+                fetch_pancakeswap_price(token_pair),
+                self._fetch_binance(token_pair),
+            )
 
         if pancake is None and binance is None:
             return MidPriceResult(

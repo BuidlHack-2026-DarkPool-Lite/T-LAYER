@@ -29,6 +29,10 @@ _COMMON_RULES = """\
   fill_amount = min(buy 잔여 수량, sell 잔여 수량)
 최소 체결 수량: 1.0 (미만이면 해당 페어는 체결하지 않는다).
 
+### 자기 매칭 금지
+- 같은 wallet_address를 가진 buy 주문과 sell 주문은 절대 매칭하지 않는다 (wash trading 방지).
+- 반드시 서로 다른 wallet_address 간에만 매칭한다.
+
 ### 슬리피지 가드레일
 - 체결가가 매수자 limit_price를 초과하면 해당 매칭은 허용되지 않는다.
 - 체결가가 매도자 limit_price 미만이면 해당 매칭은 허용되지 않는다.
@@ -130,11 +134,24 @@ JSON 객체 한 개만 반환. 마크다운, 코드 펜스 금지.
 
 # ─── 메시지 빌더 ─────────────────────────────────────────────────
 
+def _build_owner_map(orders: list[Order]) -> dict[str, str]:
+    """wallet_address → 익명 owner_id 매핑 (프라이버시 보호)."""
+    seen: dict[str, str] = {}
+    counter = 0
+    for o in orders:
+        addr = o.wallet_address.lower()
+        if addr not in seen:
+            counter += 1
+            seen[addr] = f"owner_{counter}"
+    return seen
+
+
 def build_user_message(orders: list[Order], fair_price: float) -> str:
     """주문 리스트와 공정가를 LLM user 메시지용 JSON 문자열로 만든다.
 
-    프라이버시: wallet_address는 포함하지 않는다. TEE에 지갑 주소를 노출하지 않음.
+    프라이버시: wallet_address 대신 익명 owner_id로 동일 소유자 식별.
     """
+    owner_map = _build_owner_map(orders)
     order_dicts = []
     for o in orders:
         order_dicts.append(
@@ -144,6 +161,7 @@ def build_user_message(orders: list[Order], fair_price: float) -> str:
                 "token_pair": o.token_pair,
                 "amount": float(o.amount),
                 "limit_price": float(o.limit_price),
+                "owner_id": owner_map[o.wallet_address.lower()],
             }
         )
     payload = {

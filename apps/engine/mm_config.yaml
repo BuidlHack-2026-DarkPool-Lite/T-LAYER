@@ -2,20 +2,18 @@
 # 비활성화하려면 enabled: false
 
 mm_bot:
-  enabled: false
+  enabled: true
   pairs:
     - base: BNB
       quote: USDT
       token_pair: "BNB/USDT"
-      initial_inventory_base: 1000
-      initial_inventory_quote: 300000
+      initial_inventory_base: 100
+      initial_inventory_quote: 50000
 
   pricing:
     sources:
-      - name: pancakeswap_v3
-        weight: 0.6
       - name: binance_spot
-        weight: 0.4
+        weight: 1.0
     polling_interval_sec: 5
     outlier_threshold_pct: 2.0
 
@@ -34,7 +32,7 @@ mm_bot:
     min_inventory_pct: 5.0
 
   order:
-    default_size_base: 100
+    default_size_base: 1
     refresh_interval_sec: 5
     price_refresh_threshold_pct: 0.05
 
@@ -43,6 +41,6 @@ mm_bot:
     # 가져오지만 deposit/cancel 은 BSC_TESTNET_RPC 로 발생하므로 여기 토큰도
     # 테스트넷 주소여야 한다. quote_token 은 사용자가 보유한 테스트넷
     # 스테이블 주소로 교체해야 한다 (공식 테스트넷 USDT 는 없음).
-    base_token: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd"  # BSC Testnet WBNB
-    quote_token: ""  # TODO: 사용자가 보유한 BSC Testnet 스테이블 주소로 설정
-    gas_price_gwei: 10
+    base_token: "0x506B8ce6d684B6b852600dd79DE587cF30395633"   # tBNBT
+    quote_token: "0x66D80B391C20e61F870C2Bd5a9763D77D4859684"  # tUSDT
+    gas_price_gwei: 3

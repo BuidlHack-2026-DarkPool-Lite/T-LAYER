@@ -2,6 +2,7 @@
 
 3개 전략(Conservative, Volume Max, Free Optimizer) + Judge.
 각 역할별 최적화된 TEE 모델을 배정하여 다양성과 품질을 극대화한다.
+Chat 응답마다 /v1/signature/{chatId}로 TEE 서명을 검증한다.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import json
 import logging
 import os
 
+import httpx
 from openai import OpenAI
 
 from src.matching.inference_config import (
@@ -75,8 +77,81 @@ def _get_base_config() -> tuple[str, str | None]:
     return base_url, api_key
 
 
+def _verify_tee_signature(
+    chat_id: str,
+    model: str,
+    base_url: str,
+    api_key: str,
+) -> dict:
+    """NEAR AI /v1/signature/{chatId} 로 TEE 서명 검증.
+
+    Docs 기준 검증 흐름:
+    1. GET /v1/signature/{chat_id}?model=...&signing_algo=ecdsa
+    2. response.text = "requestHash:responseHash" (TEE가 서명한 원문)
+    3. response.signature = ECDSA 서명
+    4. response.signing_address = TEE signing address
+    5. eth_account.Account.recover_message(text, signature) → recovered address
+    6. recovered address == signing_address 이면 TEE 무결성 증명
+    """
+    from eth_account import Account
+    from eth_account.messages import encode_defunct
+
+    sig_url = f"{base_url}/signature/{chat_id}"
+    try:
+        resp = httpx.get(
+            sig_url,
+            params={"model": model, "signing_algo": "ecdsa"},
+            headers={
+                "accept": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        sig_data = resp.json()
+    except Exception:
+        logger.warning("TEE signature fetch failed: chat_id=%s", chat_id)
+        return {"verified": False, "error": "signature fetch failed"}
+
+    signed_text = sig_data.get("text", "")
+    signature = sig_data.get("signature", "")
+    signing_address = sig_data.get("signing_address", "")
+
+    if not signed_text or not signature or not signing_address:
+        return {
+            "verified": False,
+            "error": "incomplete signature response",
+            "chat_id": chat_id,
+            "signing_address": signing_address,
+        }
+
+    # ECDSA 서명 검증: signature에서 address recover → signing_address와 비교
+    try:
+        message = encode_defunct(text=signed_text)
+        recovered = Account.recover_message(message, signature=signature)
+        address_match = recovered.lower() == signing_address.lower()
+    except Exception:
+        logger.warning("ECDSA signature verification failed: chat_id=%s", chat_id)
+        address_match = False
+        recovered = ""
+
+    logger.info(
+        "TEE signature verification: chat_id=%s, address_match=%s, "
+        "signing_address=%s, recovered=%s",
+        chat_id, address_match, signing_address, recovered,
+    )
+
+    return {
+        "verified": address_match,
+        "signing_address": signing_address,
+        "recovered_address": recovered if isinstance(recovered, str) else str(recovered),
+        "chat_id": chat_id,
+        "signed_text": signed_text,
+    }
+
+
 def _call_tee(system_prompt: str, user_message: str, *, role: str = "conservative") -> dict:
-    """역할별 TEE 호출. 역할에 따라 최적 모델을 자동 선택."""
+    """역할별 TEE 호출. 역할에 따라 최적 모델을 자동 선택 + 서명 검증."""
     base_url, api_key = _get_base_config()
     model = _get_model_for_role(role)
 
@@ -121,15 +196,32 @@ def _call_tee(system_prompt: str, user_message: str, *, role: str = "conservativ
         content = response.choices[0].message.content
         if not content or not content.strip():
             return {"error": "empty model response"}
-        parsed = json.loads(content)
+        # Qwen3 thinking mode: <think>...</think> 태그 제거
+        clean = content.strip()
+        if "<think>" in clean:
+            import re
+            clean = re.sub(r"<think>.*?</think>", "", clean, flags=re.DOTALL).strip()
+        parsed = json.loads(clean)
+        logger.info("TEE response (role=%s): matches=%d, reasoning=%s",
+                     role, len(parsed.get("matches", [])),
+                     str(parsed.get("reasoning", ""))[:120])
     except (json.JSONDecodeError, IndexError, AttributeError, TypeError) as exc:
-        logger.exception("TEE response JSON parse failed (role=%s)", role)
+        logger.exception("TEE response JSON parse failed (role=%s): %s", role, content[:500] if content else "")
         return {"error": f"invalid response: {exc}"}
 
     if not isinstance(parsed, dict):
         return {"error": f"expected JSON object, got {type(parsed).__name__}"}
 
     parsed["_model"] = model
+
+    # ── TEE 서명 검증 ──
+    chat_id = getattr(response, "id", None)
+    if chat_id and api_key:
+        sig_result = _verify_tee_signature(chat_id, model, base_url, api_key)
+        parsed["_tee_verification"] = sig_result
+    else:
+        parsed["_tee_verification"] = {"verified": False, "error": "no chat_id in response"}
+
     return parsed
 
 

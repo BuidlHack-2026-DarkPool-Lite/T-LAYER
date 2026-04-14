@@ -68,23 +68,50 @@ def test_validate_ok(standard_orders, base_match):
     assert r.round_held is False
 
 
-def test_reject_execution_above_taker_limit(standard_orders, base_match):
+def test_correct_execution_above_taker_limit(standard_orders, base_match):
+    """LLM이 체결가를 잘못 계산해도 limit이 호환되면 보정 후 accept."""
     bad = {**base_match, "execution_price": 586.0}
     r = validate_matching_result(
         make_raw_result(bad), standard_orders, fair_price=582.0, prev_fair_price=None
     )
-    assert r.accepted == []
-    assert len(r.rejected) == 1
-    assert "매수 limit_price" in r.rejected[0]["reason"]
+    # fair_price(582)가 sell_limit(580)~buy_limit(585) 사이이므로 582로 보정
+    assert len(r.accepted) == 1
+    assert r.accepted[0].exec_price == Decimal("582")
 
 
-def test_reject_execution_below_maker_limit(standard_orders, base_match):
+def test_correct_execution_below_maker_limit(standard_orders, base_match):
+    """LLM이 체결가를 잘못 계산해도 limit이 호환되면 보정 후 accept."""
     bad = {**base_match, "execution_price": 579.0}
     r = validate_matching_result(
         make_raw_result(bad), standard_orders, fair_price=582.0, prev_fair_price=None
     )
+    assert len(r.accepted) == 1
+    assert r.accepted[0].exec_price == Decimal("582")
+
+
+def test_reject_incompatible_limits():
+    """buy.limit < sell.limit이면 보정 불가, reject."""
+    orders = [
+        Order(
+            order_id="sell_1", side="sell", token_pair="BNB/USDT",
+            amount=Decimal("10"), limit_price=Decimal("590"),
+            wallet_address="0xAlice",
+        ),
+        Order(
+            order_id="buy_1", side="buy", token_pair="BNB/USDT",
+            amount=Decimal("10"), limit_price=Decimal("580"),
+            wallet_address="0xBob",
+        ),
+    ]
+    raw = {
+        "match_id": "m_x", "maker_order_id": "sell_1", "taker_order_id": "buy_1",
+        "token_pair": "BNB/USDT", "fill_amount": 10.0, "execution_price": 585.0,
+    }
+    r = validate_matching_result(
+        {"matches": [raw]}, orders, fair_price=585.0, prev_fair_price=None
+    )
     assert r.accepted == []
-    assert "매도 limit_price" in r.rejected[0]["reason"]
+    assert "가격 비호환" in r.rejected[0]["reason"]
 
 
 def test_reject_cumulative_fill_exceeds(standard_orders, base_match):

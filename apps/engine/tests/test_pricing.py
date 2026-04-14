@@ -15,58 +15,73 @@ from src.pricing.quote import get_pricing_quote
 
 
 class TestAggregatorOutlier:
-    def test_weighted_when_within_threshold(self):
-        r = aggregate_from_sources(600.0, 590.0)
+    def test_median_two_sources(self):
+        """2개 소스 → median = 두 값의 평균."""
+        r = aggregate_from_sources(None, 590.0, 600.0)
         assert r.outlier_downgraded is False
-        assert r.mid == 600.0 * 0.6 + 590.0 * 0.4
+        assert r.mid == 595.0  # median of [590, 600]
         assert r.spread == 10.0
+        assert r.sources_used == 2
+
+    def test_median_three_sources(self):
+        """3개 소스 → median = 중앙값."""
+        r = aggregate_from_sources(595.0, 590.0, 600.0)
+        assert r.outlier_downgraded is False
+        assert r.mid == 595.0  # median of [590, 595, 600]
+        assert r.sources_used == 3
 
     @patch.dict("os.environ", {"PRICE_OUTLIER_THRESHOLD_PCT": "5"}, clear=False)
-    def test_downgrade_to_binance_when_wide_spread(self):
-        r = aggregate_from_sources(600.0, 500.0)
+    def test_outlier_removed(self):
+        """이상치(5% 초과)는 제거되고 나머지로 median 산출."""
+        r = aggregate_from_sources(590.0, 585.0, 700.0)
         assert r.outlier_downgraded is True
-        assert r.mid == 500.0
+        # 700 은 median(585,590,700)=590 대비 18.6% → 제거
+        # 남은 [585, 590] → median = 587.5
+        assert r.mid == 587.5
+        assert r.sources_used == 2
 
-    @patch.dict(
-        "os.environ",
-        {"PRICE_OUTLIER_THRESHOLD_PCT": "5", "PRICE_OUTLIER_PRIMARY": "pancake"},
-        clear=False,
-    )
-    def test_downgrade_to_pancake_when_configured(self):
-        r = aggregate_from_sources(600.0, 500.0)
-        assert r.outlier_downgraded is True
-        assert r.mid == 600.0
+    def test_single_source(self):
+        r = aggregate_from_sources(None, 500.0, None)
+        assert r.mid == 500.0
+        assert r.sources_used == 1
 
 
 class TestPriceFeed:
     @pytest.mark.asyncio
+    @patch("src.pricing.aggregator.fetch_chainlink_price", new_callable=AsyncMock)
     @patch("src.pricing.aggregator.fetch_binance_price", new_callable=AsyncMock)
     @patch("src.pricing.aggregator.fetch_pancakeswap_price", new_callable=AsyncMock)
-    async def test_get_fair_price_weighted_average(self, mock_p, mock_b):
+    async def test_get_fair_price_median(self, mock_p, mock_b, mock_c):
         from src.pricing.aggregator import get_fair_price
 
-        mock_p.return_value = 600.0
+        mock_c.return_value = 595.0
         mock_b.return_value = 580.0
-        assert await get_fair_price("BNB/USDT") == 592.0
+        mock_p.return_value = 600.0
+        # median of [595, 580, 600] = 595
+        assert await get_fair_price("BNB/USDT") == 595.0
 
     @pytest.mark.asyncio
+    @patch("src.pricing.aggregator.fetch_chainlink_price", new_callable=AsyncMock)
     @patch("src.pricing.aggregator.fetch_binance_price", new_callable=AsyncMock)
     @patch("src.pricing.aggregator.fetch_pancakeswap_price", new_callable=AsyncMock)
-    async def test_get_fair_price_pancake_only(self, mock_p, mock_b):
+    async def test_get_fair_price_single_source(self, mock_p, mock_b, mock_c):
         from src.pricing.aggregator import get_fair_price
 
-        mock_p.return_value = 600.0
+        mock_c.return_value = None
         mock_b.return_value = None
+        mock_p.return_value = 600.0
         assert await get_fair_price("BNB/USDT") == 600.0
 
     @pytest.mark.asyncio
+    @patch("src.pricing.aggregator.fetch_chainlink_price", new_callable=AsyncMock)
     @patch("src.pricing.aggregator.fetch_binance_price", new_callable=AsyncMock)
     @patch("src.pricing.aggregator.fetch_pancakeswap_price", new_callable=AsyncMock)
-    async def test_get_fair_price_both_fail(self, mock_p, mock_b):
+    async def test_get_fair_price_all_fail(self, mock_p, mock_b, mock_c):
         from src.pricing.aggregator import get_fair_price
 
-        mock_p.return_value = None
+        mock_c.return_value = None
         mock_b.return_value = None
+        mock_p.return_value = None
         assert await get_fair_price("BNB/USDT") is None
 
 
@@ -102,25 +117,33 @@ class TestPancakeSwapFeed:
     async def test_fetch_success(self):
         from src.pricing.pancakeswap import fetch_pancakeswap_price
 
-        mock_resp = MagicMock()
-        mock_resp.json.return_value = {
-            "data": {
-                "pools": [
-                    {"token0Price": "610.25", "token1Price": "0.001638", "totalValueLockedUSD": "1"}
-                ]
-            }
-        }
-        mock_resp.raise_for_status.return_value = None
+        # sqrtPriceX96 for ~$610.25: sqrt(1/610.25) * 2^96 ≈ 3208...
+        # 역산: price = 1 / (sqrtPriceX96 / 2^96)^2
+        # sqrtPriceX96 = 2^96 / sqrt(610.25) ≈ 3204...
+        import math
+        target_price = 610.25
+        sqrt_price_x96 = int(2**96 / math.sqrt(target_price))
 
-        mock_client = AsyncMock()
-        mock_client.post.return_value = mock_resp
-        mock_client.__aenter__.return_value = mock_client
-        mock_client.__aexit__.return_value = False
+        mock_slot0 = MagicMock()
+        mock_slot0.call.return_value = (sqrt_price_x96, -64200, 0, 0, 0, 0, True)
 
-        with patch("src.pricing.pancakeswap.httpx.AsyncClient", return_value=mock_client):
+        mock_functions = MagicMock()
+        mock_functions.slot0.return_value = mock_slot0
+
+        mock_contract = MagicMock()
+        mock_contract.functions = mock_functions
+
+        with patch("src.pricing.pancakeswap.Web3") as mock_web3_cls:
+            mock_w3 = MagicMock()
+            mock_w3.eth.contract.return_value = mock_contract
+            mock_web3_cls.return_value = mock_w3
+            mock_web3_cls.to_checksum_address = lambda x: x
+            mock_web3_cls.HTTPProvider = MagicMock()
+
             price = await fetch_pancakeswap_price("BNB/USDT")
 
-        assert price == 610.25
+        assert price is not None
+        assert abs(price - target_price) < 0.01
 
     @pytest.mark.asyncio
     async def test_unsupported_pair_returns_none(self):
@@ -162,7 +185,8 @@ class TestPricingQuote:
     @patch("src.pricing.quote.aggregate_prices", new_callable=AsyncMock)
     async def test_success_both_sources(self, mock_agg):
         mock_agg.return_value = PriceAggregateResult(
-            mid=592.0, spread=20.0, pancake=600.0, binance=580.0, outlier_downgraded=False
+            mid=592.0, spread=20.0, chainlink=595.0, binance=580.0, pancake=600.0,
+            outlier_downgraded=False, sources_used=3,
         )
         q = await get_pricing_quote("BNB/USDT", request_id="req-1")
         assert q.error is None
@@ -173,7 +197,8 @@ class TestPricingQuote:
     @patch("src.pricing.quote.aggregate_prices", new_callable=AsyncMock)
     async def test_feed_failure(self, mock_agg):
         mock_agg.return_value = PriceAggregateResult(
-            mid=None, spread=None, pancake=None, binance=None, outlier_downgraded=False
+            mid=None, spread=None, chainlink=None, binance=None, pancake=None,
+            outlier_downgraded=False, sources_used=0,
         )
         q = await get_pricing_quote("BNB/USDT")
         assert q.mid_price is None
@@ -189,14 +214,16 @@ class TestPricingQuote:
     @patch("src.pricing.quote.aggregate_prices", new_callable=AsyncMock)
     async def test_dynamic_slippage_second_quote(self, mock_agg):
         mock_agg.return_value = PriceAggregateResult(
-            mid=100.0, spread=1.0, pancake=100.5, binance=99.5, outlier_downgraded=False
+            mid=100.0, spread=1.0, chainlink=None, binance=99.5, pancake=100.5,
+            outlier_downgraded=False, sources_used=2,
         )
         q1 = await get_pricing_quote("BNB/USDT")
         assert q1.max_slippage_bps == 150
         assert q1.volatility_quote_bps is None
 
         mock_agg.return_value = PriceAggregateResult(
-            mid=102.0, spread=1.0, pancake=102.5, binance=101.5, outlier_downgraded=False
+            mid=102.0, spread=1.0, chainlink=None, binance=101.5, pancake=102.5,
+            outlier_downgraded=False, sources_used=2,
         )
         q2 = await get_pricing_quote("BNB/USDT")
         assert q2.volatility_quote_bps is not None
@@ -214,12 +241,14 @@ class TestPricingQuote:
     async def test_per_pair_slippage_isolation(self, mock_agg):
         """다른 페어 견적이 서로 간섭하지 않아야 한다."""
         mock_agg.return_value = PriceAggregateResult(
-            mid=600.0, spread=1.0, pancake=600.5, binance=599.5, outlier_downgraded=False
+            mid=600.0, spread=1.0, chainlink=None, binance=599.5, pancake=600.5,
+            outlier_downgraded=False, sources_used=2,
         )
         await get_pricing_quote("BNB/USDT")
 
         mock_agg.return_value = PriceAggregateResult(
-            mid=3000.0, spread=10.0, pancake=3005.0, binance=2995.0, outlier_downgraded=False
+            mid=3000.0, spread=10.0, chainlink=None, binance=2995.0, pancake=3005.0,
+            outlier_downgraded=False, sources_used=2,
         )
         q_eth = await get_pricing_quote("ETH/USDT")
         # ETH/USDT는 이전 견적이 없으므로 volatility_quote_bps가 None이어야 함

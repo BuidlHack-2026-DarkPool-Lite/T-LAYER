@@ -9,7 +9,6 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from src.matching.runner import run_matching_cycle
 from src.mm_bot.escrow_client import MMEscrowClient, decimal_to_wei
 from src.mm_bot.inventory import InventoryState
 from src.mm_bot.order_gen import bid_ask_prices
@@ -55,6 +54,12 @@ class MMBot:
             w1 = float(sources[1].get("weight", 0.4))
             tot = w0 + w1
             pw, bw = (w0 / tot, w1 / tot) if tot > 0 else (0.6, 0.4)
+        elif len(sources) == 1 and isinstance(sources[0], dict):
+            name = sources[0].get("name", "")
+            if "binance" in name:
+                pw, bw = 0.0, 1.0
+            else:
+                pw, bw = 1.0, 0.0
         else:
             pw, bw = 0.6, 0.4
         self._binance_ws = BinanceWsFeed()
@@ -364,4 +369,5 @@ class MMBot:
                 self._orderbook.add(sell)
                 st["active_sell"] = sell_id
 
-        await run_matching_cycle(self._orderbook, token_pair, self._ws, mm_bot=self)
+        # 매칭은 유저 주문(POST /order) 시에만 실행.
+        # MM 봇 tick 에서는 호가 배치만 하고 매칭은 트리거하지 않는다.

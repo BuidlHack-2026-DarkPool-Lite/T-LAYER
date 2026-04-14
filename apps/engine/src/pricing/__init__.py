@@ -1,4 +1,3 @@
-from src.pricing.quote import get_pricing_quote
 from src.pricing.types import PricingQuoteRequest, PricingQuoteResponse
 
 __all__ = [
@@ -6,3 +5,8 @@ __all__ = [
     "PricingQuoteRequest",
     "PricingQuoteResponse",
 ]
+
+
+def get_pricing_quote(*args, **kwargs):
+    from src.pricing.quote import get_pricing_quote as _fn
+    return _fn(*args, **kwargs)
