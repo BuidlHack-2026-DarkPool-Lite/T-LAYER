@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import websockets
 
 from src.pricing.binance import binance_symbol, fetch_binance_price
+from src.pricing.chainlink import fetch_chainlink_price
 from src.pricing.pancakeswap import fetch_pancakeswap_price
 
 logger = logging.getLogger(__name__)
@@ -149,14 +150,19 @@ class BinanceWsFeed:
             except asyncio.CancelledError:
                 break
             except Exception as e:
-                # Full jitter: [0, backoff) — thundering herd 방지 표준 관행.
+                err_str = str(e)
+                # HTTP 451: Binance가 해당 지역 IP 차단 — 재시도 무의미
+                if "451" in err_str:
+                    logger.warning(
+                        "BinanceWsFeed %s: HTTP 451 (지역 차단), WS 포기. "
+                        "Chainlink+PancakeSwap fallback 사용.",
+                        symbol,
+                    )
+                    break
                 jittered = random.random() * backoff
                 logger.warning(
-                    "BinanceWsFeed %s 연결 끊김, %.2fs(jittered, cap=%.1f) 후 재시도: %s",
-                    symbol,
-                    jittered,
-                    backoff,
-                    e,
+                    "BinanceWsFeed %s 연결 끊김, %.2fs 후 재시도: %s",
+                    symbol, jittered, e,
                 )
                 try:
                     await asyncio.sleep(jittered)
@@ -188,7 +194,13 @@ class PriceFeedListener:
             cached = self._binance_ws.latest(token_pair)
             if cached is not None:
                 return cached
-        return await fetch_binance_price(token_pair)
+        price = await fetch_binance_price(token_pair)
+        if price is None:
+            # Binance 차단 시 Chainlink fallback
+            price = await fetch_chainlink_price(token_pair)
+            if price is not None:
+                logger.info("Binance 불가 → Chainlink fallback: $%.2f", price)
+        return price
 
     async def get_mid_price(self, token_pair: str) -> MidPriceResult:
         if self._wp <= 0:
