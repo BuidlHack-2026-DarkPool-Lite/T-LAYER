@@ -22,7 +22,12 @@ NVIDIA_ATTESTATION_URL = os.getenv(
     "NVIDIA_ATTESTATION_URL", "https://nras.attestation.nvidia.com/v3/attest/gpu"
 )
 
-NEAR_AI_MODEL = os.getenv("NEAR_AI_MODEL", "deepseek-ai/DeepSeek-V3.1")
+# --- TEE Model per Role ---
+NEAR_AI_MODEL = os.getenv("NEAR_AI_MODEL", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+NEAR_AI_MODEL_CONSERVATIVE = os.getenv("NEAR_AI_MODEL_CONSERVATIVE", "Qwen/Qwen3-30B-A3B-Instruct-2507")
+NEAR_AI_MODEL_VOLUME_MAX = os.getenv("NEAR_AI_MODEL_VOLUME_MAX", "zai-org/GLM-5-FP8")
+NEAR_AI_MODEL_FREE_OPTIMIZER = os.getenv("NEAR_AI_MODEL_FREE_OPTIMIZER", "openai/gpt-oss-120b")
+NEAR_AI_MODEL_JUDGE = os.getenv("NEAR_AI_MODEL_JUDGE", "Qwen/Qwen3.5-122B-A10B")
 
 # --- Pricing / Slippage ---
 SLIPPAGE_LIMIT_PCT = float(os.getenv("SLIPPAGE_LIMIT_PCT", "1.5"))
