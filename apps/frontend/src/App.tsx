@@ -177,6 +177,7 @@ export default function App() {
   const [flowState, setFlowState] = useState<FlowState>('idle');
   const [matchStep, setMatchStep] = useState(0);
   const [executionResult, setExecutionResult] = useState<any>(null);
+  const [successPage, setSuccessPage] = useState(0);
   const [flowError, setFlowError] = useState<string | null>(null);
   const [attestation, setAttestation] = useState<AttestationResult | null>(null);
   const [matchReasoning, setMatchReasoning] = useState<{ engine: string; reasoning: string } | null>(null);
@@ -211,6 +212,23 @@ export default function App() {
       }
     };
   }, []);
+
+  // 성공 페이지 자동 전환 (3초 간격, 마지막 페이지에서 멈춤)
+  const autoPageRef = useRef(true);
+  useEffect(() => {
+    if (flowState !== 'success' || !executionResult || executionResult.pending) return;
+    autoPageRef.current = true;
+    setSuccessPage(0);
+  }, [flowState, executionResult?.pending]);
+
+  useEffect(() => {
+    if (flowState !== 'success' || executionResult?.pending || !autoPageRef.current) return;
+    if (successPage >= 4) return;
+    const timer = setTimeout(() => {
+      if (autoPageRef.current) setSuccessPage(p => Math.min(p + 1, 4));
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [flowState, successPage, executionResult?.pending]);
 
   // ─── Token Balance (온체인 조회) ───────────────────────────────────────────
   useEffect(() => {
@@ -466,6 +484,7 @@ export default function App() {
     setPrice('');
     setMatchStep(0);
     setExecutionResult(null);
+    setSuccessPage(0);
     setFlowError(null);
     setMatchReasoning(null);
     currentOrderIdRef.current = null;
@@ -1362,8 +1381,10 @@ export default function App() {
               </div>
             )}
 
-            {/* Phase 4: Success */}
-            {flowState === 'success' && executionResult && (
+            {/* Phase 4: Success — Paginated Results */}
+            {flowState === 'success' && executionResult && (() => {
+              const TOTAL_PAGES = executionResult.pending ? 1 : 5;
+              return (
               <div className="p-6">
                 {/* Header */}
                 <div className="flex items-center gap-3 mb-6">
@@ -1378,242 +1399,281 @@ export default function App() {
                       {executionResult.pending ? 'Waiting for counterparty match' : 'Private trade executed via TEE'}
                     </p>
                   </div>
+                  {/* Page indicator */}
+                  {!executionResult.pending && (
+                    <div className="ml-auto flex items-center gap-1.5">
+                      {Array.from({ length: TOTAL_PAGES }, (_, i) => (
+                        <div key={i} className={`w-1.5 h-1.5 rounded-full transition-colors ${i === successPage ? 'bg-emerald-400' : 'bg-neutral-700'}`} />
+                      ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Two-column layout */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                {/* Page 0: Trade Summary + MEV Protection */}
+                {successPage === 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                    {/* Left: Trade Details */}
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 space-y-3">
+                      <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Trade Summary</span>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-neutral-500">Price</span>
+                        <span className="text-sm font-mono text-white">{executionResult.price} USDT</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-neutral-500">Amount</span>
+                        <span className="text-sm font-mono text-white">{executionResult.amount} {selectedToken.symbol}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-neutral-500">Total</span>
+                        <span className="text-sm font-mono text-emerald-400">{executionResult.total} USDT</span>
+                      </div>
+                      <div className="h-px bg-neutral-800" />
+                      <div className="flex justify-between items-center">
+                        <span className="text-xs text-neutral-500">Status</span>
+                        <div className="flex items-center gap-1.5">
+                          <div className={`w-1.5 h-1.5 rounded-full ${executionResult.pending ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                          <span className="text-xs font-medium text-white">
+                            {executionResult.pending ? 'Pending' : `${executionResult.filled}% Filled`}
+                          </span>
+                        </div>
+                      </div>
+                      {executionResult.hash && (
+                        <>
+                          <div className="h-px bg-neutral-800" />
+                          <a
+                            href={`${BSC_TESTNET.blockExplorer}/tx/${executionResult.hash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 text-[10px] font-mono text-neutral-500 hover:text-emerald-400 transition-colors"
+                          >
+                            <span>Tx: {executionResult.hash.substring(0, 10)}...{executionResult.hash.substring(58)}</span>
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        </>
+                      )}
+                    </div>
 
-                  {/* Left: Trade Details */}
-                  <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 space-y-3">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Trade Summary</span>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-neutral-500">Price</span>
-                      <span className="text-sm font-mono text-white">{executionResult.price} USDT</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-neutral-500">Amount</span>
-                      <span className="text-sm font-mono text-white">{executionResult.amount} {selectedToken.symbol}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-neutral-500">Total</span>
-                      <span className="text-sm font-mono text-emerald-400">{executionResult.total} USDT</span>
-                    </div>
-                    <div className="h-px bg-neutral-800" />
-                    <div className="flex justify-between items-center">
-                      <span className="text-xs text-neutral-500">Status</span>
-                      <div className="flex items-center gap-1.5">
-                        <div className={`w-1.5 h-1.5 rounded-full ${executionResult.pending ? 'bg-blue-500' : 'bg-emerald-500'}`} />
-                        <span className="text-xs font-medium text-white">
-                          {executionResult.pending ? 'Pending' : `${executionResult.filled}% Filled`}
+                    {/* Right: MEV Protection */}
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 space-y-3">
+                      <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">MEV Protection</span>
+                      <div className="bg-rose-500/5 border border-rose-500/10 rounded-md p-3">
+                        <div className="text-[10px] font-mono text-rose-400/60 mb-2">Public DEX (e.g. PancakeSwap)</div>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-500">Frontrun risk</span>
+                            <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.003).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-500">Sandwich attack</span>
+                            <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.005).toFixed(2)}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-500">Price impact</span>
+                            <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.002).toFixed(2)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-md p-3">
+                        <div className="text-[10px] font-mono text-emerald-400/60 mb-2">T-LAYER (TEE)</div>
+                        <div className="space-y-1.5">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-500">Frontrun risk</span>
+                            <span className="font-mono text-emerald-400">$0.00</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-500">Sandwich attack</span>
+                            <span className="font-mono text-emerald-400">$0.00</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-neutral-500">Price impact</span>
+                            <span className="font-mono text-emerald-400">$0.00</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center pt-1 border-t border-neutral-800">
+                        <span className="text-xs text-neutral-500">You saved</span>
+                        <span className="text-sm font-mono font-bold text-emerald-400">
+                          ~${(parseFloat(executionResult.total) * 0.01).toFixed(2)}
                         </span>
                       </div>
                     </div>
-                    {executionResult.hash && (
-                      <>
-                        <div className="h-px bg-neutral-800" />
-                        <a
-                          href={`${BSC_TESTNET.blockExplorer}/tx/${executionResult.hash}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center gap-2 text-[10px] font-mono text-neutral-500 hover:text-emerald-400 transition-colors"
-                        >
-                          <span>Tx: {executionResult.hash.substring(0, 10)}...{executionResult.hash.substring(58)}</span>
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </>
-                    )}
-                  </div>
-
-                  {/* Right: MEV Protection */}
-                  <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 space-y-3">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">MEV Protection</span>
-
-                    {/* Public DEX comparison */}
-                    <div className="bg-rose-500/5 border border-rose-500/10 rounded-md p-3">
-                      <div className="text-[10px] font-mono text-rose-400/60 mb-2">Public DEX (e.g. PancakeSwap)</div>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Frontrun risk</span>
-                          <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.003).toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Sandwich attack</span>
-                          <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.005).toFixed(2)}</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Price impact</span>
-                          <span className="font-mono text-rose-400">~${(parseFloat(executionResult.total) * 0.002).toFixed(2)}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* DarkPool */}
-                    <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-md p-3">
-                      <div className="text-[10px] font-mono text-emerald-400/60 mb-2">T-LAYER (TEE)</div>
-                      <div className="space-y-1.5">
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Frontrun risk</span>
-                          <span className="font-mono text-emerald-400">$0.00</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Sandwich attack</span>
-                          <span className="font-mono text-emerald-400">$0.00</span>
-                        </div>
-                        <div className="flex justify-between text-xs">
-                          <span className="text-neutral-500">Price impact</span>
-                          <span className="font-mono text-emerald-400">$0.00</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="flex justify-between items-center pt-1 border-t border-neutral-800">
-                      <span className="text-xs text-neutral-500">You saved</span>
-                      <span className="text-sm font-mono font-bold text-emerald-400">
-                        ~${(parseFloat(executionResult.total) * 0.01).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Competitive TEE Matching Result */}
-                <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
-                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Competitive TEE Matching</span>
-                  {executionResult.pending ? (
-                    <div className="mt-3 flex items-center gap-2 text-xs text-neutral-500">
-                      <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />
-                      <span>Waiting for counterparty — TEE matching will execute when matched</span>
-                    </div>
-                  ) : (
-                    <div className="mt-3 space-y-2">
-                      {(() => {
-                        const winnerEngine = executionResult.engine_used || 'unknown';
-                        const strategies = [
-                          { name: 'Conservative', key: 'conservative', desc: 'Qwen3-30B-A3B', color: 'emerald' },
-                          { name: 'Volume Max', key: 'volume_max', desc: 'GLM-5-FP8', color: 'amber' },
-                          { name: 'Free Optimizer', key: 'free_optimizer', desc: 'GPT-OSS-120B', color: 'purple' },
-                        ];
-                        return strategies.map(s => {
-                          const isWinner = s.key === winnerEngine;
-                          return (
-                            <div key={s.name} className="flex items-center justify-between text-xs">
-                              <div className="flex items-center gap-2">
-                                <div className={`w-1 h-1 rounded-full bg-${s.color}-500`} />
-                                <span className={isWinner ? 'text-cyan-400 font-bold' : 'text-neutral-400'}>{s.name}</span>
-                                <span className="text-neutral-600 font-mono">{s.desc}</span>
-                                {isWinner && <span className="text-[9px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono">WINNER</span>}
-                              </div>
-                              <span className={`font-mono ${isWinner ? 'text-cyan-400 font-bold' : 'text-neutral-500'}`}>
-                                {isWinner ? 'SELECTED' : 'DONE'}
-                              </span>
-                            </div>
-                          );
-                        });
-                      })()}
-                    </div>
-                  )}
-                  <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between text-[10px]">
-                    <span className="font-mono text-neutral-600">Judge: fill_rate(40%) + spread(30%) + fairness(30%)</span>
-                    <span className="font-mono text-cyan-400/70">3 strategies + 1 judge = 4 TEE calls</span>
-                  </div>
-                </div>
-
-                {/* TEE Attestation */}
-                <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">TEE Attestation</span>
-                    <span className={`text-[9px] font-mono ${attestation?.success ? 'text-emerald-500/60' : 'text-amber-500/60'}`}>{attestation?.success ? 'pre-verified' : 'unverified'}</span>
-                  </div>
-                  <div className="mt-3 space-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Enclave measurement</span>
-                      <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation?.enclave_measurement || 'n/a'}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">GPU attestation</span>
-                      <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation?.success ? `${attestation.gpu_model} verified` : 'n/a'}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Code integrity</span>
-                      <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation?.code_integrity || 'n/a'}</span>
-                    </div>
-                    {attestation?.signing_addresses?.[0] && (
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-neutral-500">Signing address</span>
-                        <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation.signing_addresses[0].substring(0, 8)}...{attestation.signing_addresses[0].substring(36)}</span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="mt-2 pt-2 border-t border-neutral-800 text-[10px] font-mono text-neutral-600">
-                    {attestation?.success
-                      ? 'TEE environment verified before order entered enclave'
-                      : 'TEE attestation unavailable — verification skipped'}
-                  </div>
-                </div>
-
-                {/* AI Matching Analysis */}
-                {matchReasoning && (
-                  <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-4">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Matching Analysis</span>
-                      <span className="text-[9px] font-mono text-purple-400/60">
-                        {matchReasoning.engine === 'conservative' ? 'Conservative' : matchReasoning.engine === 'volume_max' ? 'Volume Max' : matchReasoning.engine === 'free_optimizer' ? 'Free Optimizer' : 'TEE Strategy'}
-                      </span>
-                    </div>
-                    <p className="mt-2 text-xs text-neutral-400 leading-relaxed">{matchReasoning.reasoning}</p>
                   </div>
                 )}
 
-                {/* Privacy Report */}
-                <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4 mb-6">
-                  <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Privacy Report — On-chain Visibility</span>
-                  <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Deposit amount</span>
-                      <span className="font-mono text-amber-400">Visible</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Order side (buy/sell)</span>
-                      <span className="font-mono text-emerald-400">Hidden</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Settlement tx</span>
-                      <span className="font-mono text-amber-400">Visible</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Limit price</span>
-                      <span className="font-mono text-emerald-400">Hidden</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Wallet address</span>
-                      <span className="font-mono text-amber-400">Visible</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Counterparty</span>
-                      <span className="font-mono text-emerald-400">Hidden</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Token type</span>
-                      <span className="font-mono text-amber-400">Visible</span>
-                    </div>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-neutral-500">Order timing</span>
-                      <span className="font-mono text-emerald-400">Hidden</span>
+                {/* Page 1: Competitive TEE Matching */}
+                {successPage === 1 && !executionResult.pending && (
+                  <div className="mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
+                      <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Competitive TEE Matching</span>
+                      <div className="mt-3 space-y-2">
+                        {(() => {
+                          const winnerEngine = executionResult.engine_used || 'unknown';
+                          const strategies = [
+                            { name: 'Conservative', key: 'conservative', desc: 'Qwen3-30B-A3B', color: 'emerald' },
+                            { name: 'Volume Max', key: 'volume_max', desc: 'GLM-5-FP8', color: 'amber' },
+                            { name: 'Free Optimizer', key: 'free_optimizer', desc: 'GPT-OSS-120B', color: 'purple' },
+                          ];
+                          return strategies.map(s => {
+                            const isWinner = s.key === winnerEngine;
+                            return (
+                              <div key={s.name} className="flex items-center justify-between text-xs">
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-1 h-1 rounded-full bg-${s.color}-500`} />
+                                  <span className={isWinner ? 'text-cyan-400 font-bold' : 'text-neutral-400'}>{s.name}</span>
+                                  <span className="text-neutral-600 font-mono">{s.desc}</span>
+                                  {isWinner && <span className="text-[9px] bg-cyan-400/10 text-cyan-400 px-1.5 py-0.5 rounded font-mono">WINNER</span>}
+                                </div>
+                                <span className={`font-mono ${isWinner ? 'text-cyan-400 font-bold' : 'text-neutral-500'}`}>
+                                  {isWinner ? 'SELECTED' : 'DONE'}
+                                </span>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-neutral-800 flex items-center justify-between text-[10px]">
+                        <span className="font-mono text-neutral-600">Judge: fill_rate(40%) + spread(30%) + fairness(30%)</span>
+                        <span className="font-mono text-cyan-400/70">3 strategies + 1 judge = 4 TEE calls</span>
+                      </div>
                     </div>
                   </div>
-                  <div className="mt-3 pt-3 border-t border-neutral-800 flex items-center justify-between">
-                    <span className="text-[10px] font-mono text-neutral-600">4 fields visible · 4 fields hidden in TEE</span>
-                    <span className="text-[10px] font-mono text-emerald-500/60">Privacy score: 50% on-chain shielded</span>
-                  </div>
-                </div>
+                )}
 
-                <button
-                  onClick={resetFlow}
-                  className="w-full py-3 rounded-lg font-bold text-sm bg-neutral-800 text-white hover:bg-neutral-700 transition-colors"
-                >
-                  Close
-                </button>
+                {/* Page 2: TEE Attestation */}
+                {successPage === 2 && !executionResult.pending && (
+                  <div className="mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">TEE Attestation</span>
+                        <span className={`text-[9px] font-mono ${attestation?.success ? 'text-emerald-500/60' : 'text-amber-500/60'}`}>{attestation?.success ? 'pre-verified' : 'unverified'}</span>
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Enclave measurement</span>
+                          <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation?.enclave_measurement || 'n/a'}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">GPU attestation</span>
+                          <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation?.success ? `${attestation.gpu_model} verified` : 'n/a'}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Code integrity</span>
+                          <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation?.code_integrity || 'n/a'}</span>
+                        </div>
+                        {attestation?.signing_addresses?.[0] && (
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-neutral-500">Signing address</span>
+                            <span className={`font-mono text-[10px] ${attestation?.success ? 'text-emerald-500/70' : 'text-neutral-600'}`}>{attestation.signing_addresses[0].substring(0, 8)}...{attestation.signing_addresses[0].substring(36)}</span>
+                          </div>
+                        )}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-neutral-800 text-[10px] font-mono text-neutral-600">
+                        {attestation?.success
+                          ? 'TEE environment verified before order entered enclave'
+                          : 'TEE attestation unavailable — verification skipped'}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Page 3: AI Matching Analysis */}
+                {successPage === 3 && !executionResult.pending && (
+                  <div className="mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                    {matchReasoning ? (
+                      <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Matching Analysis</span>
+                          <span className="text-[9px] font-mono text-purple-400/60">
+                            {matchReasoning.engine === 'conservative' ? 'Conservative' : matchReasoning.engine === 'volume_max' ? 'Volume Max' : matchReasoning.engine === 'free_optimizer' ? 'Free Optimizer' : 'TEE Strategy'}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-xs text-neutral-400 leading-relaxed">{matchReasoning.reasoning}</p>
+                      </div>
+                    ) : (
+                      <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
+                        <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Matching Analysis</span>
+                        <p className="mt-2 text-xs text-neutral-500">No analysis available for this match.</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Page 4: Privacy Report */}
+                {successPage === 4 && !executionResult.pending && (
+                  <div className="mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
+                    <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
+                      <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Privacy Report — On-chain Visibility</span>
+                      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Deposit amount</span>
+                          <span className="font-mono text-amber-400">Visible</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Order side (buy/sell)</span>
+                          <span className="font-mono text-emerald-400">Hidden</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Settlement tx</span>
+                          <span className="font-mono text-amber-400">Visible</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Limit price</span>
+                          <span className="font-mono text-emerald-400">Hidden</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Wallet address</span>
+                          <span className="font-mono text-amber-400">Visible</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Counterparty</span>
+                          <span className="font-mono text-emerald-400">Hidden</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Token type</span>
+                          <span className="font-mono text-amber-400">Visible</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-neutral-500">Order timing</span>
+                          <span className="font-mono text-emerald-400">Hidden</span>
+                        </div>
+                      </div>
+                      <div className="mt-3 pt-3 border-t border-neutral-800 flex items-center justify-between">
+                        <span className="text-[10px] font-mono text-neutral-600">4 fields visible · 4 fields hidden in TEE</span>
+                        <span className="text-[10px] font-mono text-emerald-500/60">Privacy score: 50% on-chain shielded</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Navigation buttons */}
+                <div className="flex gap-3">
+                  {!executionResult.pending && successPage > 0 && (
+                    <button
+                      onClick={() => { autoPageRef.current = false; setSuccessPage(p => p - 1); }}
+                      className="flex-1 py-3 rounded-lg font-bold text-sm bg-neutral-800 text-white hover:bg-neutral-700 transition-colors"
+                    >
+                      Back
+                    </button>
+                  )}
+                  {!executionResult.pending && successPage < TOTAL_PAGES - 1 ? (
+                    <button
+                      onClick={() => { autoPageRef.current = false; setSuccessPage(p => p + 1); }}
+                      className="flex-1 py-3 rounded-lg font-bold text-sm bg-emerald-600 text-white hover:bg-emerald-500 transition-colors"
+                    >
+                      Next
+                    </button>
+                  ) : (
+                    <button
+                      onClick={resetFlow}
+                      className="flex-1 py-3 rounded-lg font-bold text-sm bg-neutral-800 text-white hover:bg-neutral-700 transition-colors"
+                    >
+                      Close
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
+              );
+            })()}
 
           </div>
         </div>
