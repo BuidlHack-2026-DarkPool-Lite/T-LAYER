@@ -439,12 +439,24 @@ export default function App() {
       if (fallbackTimeoutRef.current !== null) {
         clearTimeout(fallbackTimeoutRef.current);
       }
-      fallbackTimeoutRef.current = window.setTimeout(() => {
+      fallbackTimeoutRef.current = window.setTimeout(async () => {
         fallbackTimeoutRef.current = null;
         if (flowStateRef.current !== 'match') return;
-        // 타임아웃: TEE 애니메이션 없이 바로 pending 표시
         const fallbackPrice = priceRef.current;
         const fallbackAmount = amountRef.current;
+
+        // WS 끊김 대비: 백엔드에 실제 상태 조회 후 체결됐으면 success 로 반영
+        let backendFilled = 0;
+        let backendStatus = 'pending';
+        try {
+          const status = await getOrderStatus(orderId);
+          backendFilled = parseFloat(status.filled_amount) || 0;
+          backendStatus = status.status;
+        } catch (e) {
+          console.warn('Fallback status check failed:', e);
+        }
+
+        const isFilled = backendStatus === 'filled' || backendFilled > 0;
         setMatchStep(2);
         setFlowState('success');
         setExecutionResult({
@@ -452,11 +464,11 @@ export default function App() {
           amount: fallbackAmount,
           total: (parseFloat(fallbackAmount) * parseFloat(fallbackPrice)).toFixed(2),
           hash: depositTxHash,
-          filled: 0,
-          pending: true,
-          engine_used: null,
+          filled: backendFilled,
+          pending: !isFilled,
+          engine_used: isFilled ? 'recovered' : null,
           scores: null,
-          judge_reasoning: '',
+          judge_reasoning: isFilled ? 'Match recovered via status poll (WebSocket dropped).' : '',
         });
       }, 120000);
 
