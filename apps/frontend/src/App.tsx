@@ -234,6 +234,7 @@ export default function App() {
   useEffect(() => {
     if (!wallet.address || !wallet.isCorrectChain) {
       setTokenBalance('0.00');
+      setMyOrders([]);
       return;
     }
 
