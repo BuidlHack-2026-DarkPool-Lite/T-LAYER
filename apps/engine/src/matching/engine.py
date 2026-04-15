@@ -152,6 +152,35 @@ class MatchingEngine:
         self._book.lock(snapshot_ids)
         self.last_locked_ids = snapshot_ids
 
+        # ── Fast path: 가격이 명확히 크로스되면 LLM 건너뛰고 즉시 체결 ──
+        # LLM 4번(3 전략 + Judge) 타면 60초 걸려서 유저가 펜딩 체감.
+        # 단순 1-maker × 1-taker 크로스는 LLM 없이 바로 처리.
+        fast_matches = self._fast_path_match(
+            buys, sells, fair_decimal, orders_snapshot
+        )
+        if fast_matches:
+            applied: list[MatchResult] = []
+            for m in fast_matches:
+                try:
+                    self._book.fill(m.maker_order_id, m.maker_fill_amount)
+                except ValueError:
+                    logger.info("fast-path maker fill 스킵: %s", m.maker_order_id[:8])
+                try:
+                    self._book.fill(m.taker_order_id, m.maker_fill_amount)
+                except ValueError:
+                    logger.info("fast-path taker fill 스킵: %s", m.taker_order_id[:8])
+                applied.append(m)
+            self.last_engine_used = "fast_path"
+            self.last_reasoning = (
+                "Immediate deterministic match — prices cross cleanly, "
+                "LLM tournament skipped for speed."
+            )
+            self.last_scores = None
+            self.last_judge_reasoning = ""
+            self.last_tee_verifications = []
+            logger.info("Fast-path 매칭 성공: %d건 체결 (LLM 건너뜀)", len(applied))
+            return applied
+
         # ── Step 1: 3개 전략 병렬 실행 (모두 NEAR AI TEE) ──
         async def _conservative():
             try:

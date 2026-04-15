@@ -471,10 +471,19 @@ export default function App() {
         console.warn('Attestation verification failed:', attErr);
       }
       setMatchStep(1);
+      // 매칭 대기 애니메이션 — TEE ENCLAVE 단계로 넘어가서 '매칭 중...' 표시.
+      // 실제 체결되면 step 5 로 점프.
+      window.setTimeout(() => {
+        if (flowStateRef.current === 'match') setMatchStep(2);
+      }, 800);
+      window.setTimeout(() => {
+        if (flowStateRef.current === 'match') setMatchStep(3);
+      }, 1600);
 
-      // 매칭은 WebSocket 으로 처리. 45초 안에 WS 이벤트 못 받으면 pending
-      // 상태로 success 화면을 띄우고, 그 이후에도 15초마다 백엔드 status 를
-      // 폴링해서 뒤늦게 체결되면 자동으로 화면을 업데이트한다.
+      // 매칭은 WS 로 실시간 수신하는 게 1순위. WS 가 놓칠 수도 있으니 5초마다
+      // /order/:id/status 도 같이 폴링. 둘 중 먼저 체결 확인되는 쪽이 이긴다.
+      // 중요: 체결 확인되기 전까지는 계속 'match' 단계에 머물고, success 로는
+      // 실제 filled 됐을 때만 전환한다. (펜딩을 결과페이지에 보여주지 않음)
       if (fallbackTimeoutRef.current !== null) {
         clearTimeout(fallbackTimeoutRef.current);
       }
@@ -482,13 +491,11 @@ export default function App() {
         clearInterval(fallbackPollRef.current);
       }
 
-      const applyStatus = (
-        backendStatus: string,
+      const applyFilled = (
         backendFilled: number,
         backendTxHash: string | null,
       ) => {
-        const isFilled = backendStatus === 'filled' || backendFilled > 0;
-        if (isFilled && backendTxHash) {
+        if (backendTxHash) {
           setMyOrders((prev) =>
             prev.map((o) =>
               o.id === orderId
@@ -497,6 +504,7 @@ export default function App() {
             ),
           );
         }
+        setMatchStep(5);
         setExecutionResult((prev) => ({
           price: prev?.price ?? priceRef.current,
           amount: prev?.amount ?? amountRef.current,
@@ -505,54 +513,47 @@ export default function App() {
             (parseFloat(amountRef.current) * parseFloat(priceRef.current)).toFixed(2),
           hash: backendTxHash || prev?.hash || depositTxHash,
           filled: backendFilled,
-          pending: !isFilled,
-          engine_used: isFilled ? prev?.engine_used ?? 'recovered' : null,
+          pending: false,
+          engine_used: prev?.engine_used ?? 'recovered',
           scores: prev?.scores ?? null,
-          judge_reasoning: isFilled
-            ? prev?.judge_reasoning ?? 'Match recovered via status poll.'
-            : '',
+          judge_reasoning:
+            prev?.judge_reasoning ?? 'Match recovered via status poll.',
         }));
-        return isFilled;
+        setFlowState('success');
       };
 
       const pollStatus = async (): Promise<boolean> => {
         try {
           const status = await getOrderStatus(orderId);
           const filled = parseFloat(status.filled_amount) || 0;
-          return applyStatus(status.status, filled, status.tx_hash || null);
+          const isFilled = status.status === 'filled' || filled > 0;
+          if (isFilled) {
+            applyFilled(filled, status.tx_hash || null);
+            return true;
+          }
+          return false;
         } catch (e) {
           console.warn('Status poll failed:', e);
           return false;
         }
       };
 
-      fallbackTimeoutRef.current = window.setTimeout(async () => {
-        fallbackTimeoutRef.current = null;
-        if (flowStateRef.current !== 'match') return;
-
-        // 첫 폴 — success 화면으로 전환 (pending 가능).
-        setMatchStep(2);
-        setFlowState('success');
-        const filledNow = await pollStatus();
-
-        // 아직 미체결이면 15초마다 반복 폴링 — 뒤늦게 체결되면 자동 반영.
-        if (!filledNow) {
-          fallbackPollRef.current = window.setInterval(async () => {
-            if (flowStateRef.current !== 'success') {
-              if (fallbackPollRef.current !== null) {
-                clearInterval(fallbackPollRef.current);
-                fallbackPollRef.current = null;
-              }
-              return;
-            }
-            const done = await pollStatus();
-            if (done && fallbackPollRef.current !== null) {
-              clearInterval(fallbackPollRef.current);
-              fallbackPollRef.current = null;
-            }
-          }, 15000);
+      // 5초마다 백엔드 status 폴 — 체결되면 즉시 success 로 전환.
+      // 체결 안 되는 동안은 계속 match 화면 유지 (애니메이션 진행 중).
+      fallbackPollRef.current = window.setInterval(async () => {
+        if (flowStateRef.current !== 'match') {
+          if (fallbackPollRef.current !== null) {
+            clearInterval(fallbackPollRef.current);
+            fallbackPollRef.current = null;
+          }
+          return;
         }
-      }, 45000);
+        const done = await pollStatus();
+        if (done && fallbackPollRef.current !== null) {
+          clearInterval(fallbackPollRef.current);
+          fallbackPollRef.current = null;
+        }
+      }, 5000);
 
     } catch (err: any) {
       console.error('Order execution failed:', err);
