@@ -272,8 +272,19 @@ class MatchingEngine:
         applied: list[MatchResult] = []
         if not validated.round_held and len(validated.rejected) == 0:
             for m in validated.accepted:
-                self._book.fill(m.maker_order_id, m.maker_fill_amount)
-                self._book.fill(m.taker_order_id, m.maker_fill_amount)
+                try:
+                    self._book.fill(m.maker_order_id, m.maker_fill_amount)
+                except ValueError as exc:
+                    logger.warning(
+                        "maker fill 스킵 (비활성): %s — %s", m.maker_order_id[:8], exc,
+                    )
+                try:
+                    self._book.fill(m.taker_order_id, m.maker_fill_amount)
+                except ValueError as exc:
+                    logger.warning(
+                        "taker fill 스킵 (비활성): %s — %s", m.taker_order_id[:8], exc,
+                    )
+                # TEE 검증 완료된 매칭은 fill 실패와 무관하게 결과에 포함
                 applied.append(m)
 
         self.last_engine_used = winner_strategy
