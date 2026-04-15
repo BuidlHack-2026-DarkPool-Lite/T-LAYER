@@ -32,6 +32,41 @@ def _make_w3() -> Web3:
     return Web3(Web3.HTTPProvider(BSC_TESTNET_RPC, request_kwargs={"timeout": _RPC_TIMEOUT_SEC}))
 
 
+def simulate_execute_swap(
+    swap_id: bytes,
+    maker_order_id: bytes,
+    taker_order_id: bytes,
+    maker_fill_amount: int,
+    taker_fill_amount: int,
+    tee_signature: bytes,
+    sender_address: str,
+) -> tuple[bool, str]:
+    """executeSwap 을 eth_call 로 시뮬레이트. 실패 사유를 문자열로 리턴.
+
+    Returns:
+        (ok, reason) — ok=True 면 revert 없이 통과.
+    """
+    if not ESCROW_CONTRACT_ADDRESS:
+        return False, "ESCROW_CONTRACT_ADDRESS not set"
+    w3 = _make_w3()
+    contract = w3.eth.contract(
+        address=Web3.to_checksum_address(ESCROW_CONTRACT_ADDRESS),
+        abi=DARKPOOL_ESCROW_ABI,
+    )
+    try:
+        contract.functions.executeSwap(
+            swap_id,
+            maker_order_id,
+            taker_order_id,
+            maker_fill_amount,
+            taker_fill_amount,
+            tee_signature,
+        ).call({"from": Web3.to_checksum_address(sender_address)})
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
 def build_execute_swap_tx(
     swap_id: bytes,
     maker_order_id: bytes,

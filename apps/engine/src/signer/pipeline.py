@@ -14,6 +14,7 @@ from src.signer.submitter import (
     _make_w3,
     build_execute_swap_tx,
     sign_and_send_tx,
+    simulate_execute_swap,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,12 +124,34 @@ def submit_match(match: MatchResult, signature: bytes) -> str | None:
         ):
             return None
 
+        swap_id_bytes = to_bytes32(match.swap_id)
+        maker_bytes = to_bytes32(match.maker_order_id)
+        taker_bytes = to_bytes32(match.taker_order_id)
+
+        # 최종 시뮬레이션 — preflight 후 race 로 상태가 바뀌어도 여기서 잡힘.
+        # 실패 시 revert tx 가 아예 체인에 안 남음.
+        ok, reason = simulate_execute_swap(
+            swap_id=swap_id_bytes,
+            maker_order_id=maker_bytes,
+            taker_order_id=taker_bytes,
+            maker_fill_amount=maker_fill_wei,
+            taker_fill_amount=taker_fill_wei,
+            tee_signature=signature,
+            sender_address=sender,
+        )
+        if not ok:
+            logger.info(
+                "executeSwap 시뮬레이션 실패 — 제출 생략: swap_id=%s reason=%s",
+                match.swap_id[:8], reason[:160],
+            )
+            return None
+
         nonce = w3.eth.get_transaction_count(Web3.to_checksum_address(sender))
 
         tx = build_execute_swap_tx(
-            swap_id=to_bytes32(match.swap_id),
-            maker_order_id=to_bytes32(match.maker_order_id),
-            taker_order_id=to_bytes32(match.taker_order_id),
+            swap_id=swap_id_bytes,
+            maker_order_id=maker_bytes,
+            taker_order_id=taker_bytes,
             maker_fill_amount=maker_fill_wei,
             taker_fill_amount=taker_fill_wei,
             tee_signature=signature,
