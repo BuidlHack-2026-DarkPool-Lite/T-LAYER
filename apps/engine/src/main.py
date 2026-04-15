@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from src.matching.runner import run_matching_cycle
 from src.mm_bot.bot import MMBot
 from src.mm_bot.config import load_mm_settings
 from src.models import OrderBook
@@ -63,6 +64,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.background_tasks.add(mm_task)
         mm_task.add_done_callback(app.state.background_tasks.discard)
         logger.info("MM 봇 태스크 등록됨 (mm_config.yaml enabled=true)")
+
+    # 주기적 매칭 스위퍼 — 유저 주문이 MM 호가 갱신을 놓쳐도 10초 안에
+    # 체결되도록 한다. pair lock 이 중복 실행을 막아준다.
+    async def _matching_sweeper() -> None:
+        orderbook = app.state.orderbook
+        ws_manager = app.state.ws_manager
+        while True:
+            try:
+                await asyncio.sleep(10.0)
+                pairs = {o.token_pair for o in orderbook.all_orders() if o.is_active}
+                mm = getattr(app.state, "mm_bot", None)
+                for pair in pairs:
+                    asyncio.create_task(
+                        run_matching_cycle(orderbook, pair, ws_manager, mm_bot=mm)
+                    )
+            except asyncio.CancelledError:
+                break
+            except Exception:
+                logger.exception("매칭 스위퍼 실패")
+
+    sweeper_task = asyncio.create_task(_matching_sweeper())
+    app.state.background_tasks.add(sweeper_task)
+    sweeper_task.add_done_callback(app.state.background_tasks.discard)
+    logger.info("매칭 스위퍼 등록됨 (10초 주기)")
 
     yield
 
