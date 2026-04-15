@@ -400,17 +400,20 @@ export default function App() {
     setFlowError(null);
 
     try {
-      // 유저 입력 가격 = limit_price = deposit 기준 (버퍼 없음).
-      // 체결가는 limit 이내에서만 결정되므로 유저는 입력한 가격보다 절대 손해
-      // 안 봄. 이전의 1.01 버퍼는 유저를 '원하지 않은 비싼 가격' 으로 체결시켜서
-      // 제거.
-      const orderPrice = parseFloat(price).toFixed(6);
+      // 자동 슬리피지 버퍼 3% — MM 스프레드를 확실히 넘어 크로스되도록.
+      // 실제 체결가는 TEE validator 가 fair_price 로 고정하므로 유저 부담은
+      // 입력가 근처. limit 과 deposit 둘 다 buffered 로 맞춰야 on-chain revert
+      // 안 남.
+      const priceNum = parseFloat(price);
+      const bufferedPrice = orderSide === 'buy'
+        ? (priceNum * 1.03).toFixed(6)
+        : (priceNum * 0.97).toFixed(6);
 
       // Deposit할 토큰 결정: buy면 USDT를 예치, sell이면 해당 토큰을 예치
       const depositSymbol = orderSide === 'buy' ? 'USDT' : selectedToken.symbol;
       const tokenAddress = TOKEN_ADDRESSES[depositSymbol];
       const depositAmount = orderSide === 'buy'
-        ? parseUnits((parseFloat(amount) * parseFloat(orderPrice)).toFixed(6), 18)
+        ? parseUnits((parseFloat(amount) * parseFloat(bufferedPrice)).toFixed(6), 18)
         : parseUnits(amount, 18);
 
       // Phase 1: ERC20 Approve
@@ -425,7 +428,7 @@ export default function App() {
         token_pair: selectedToken.pair,
         side: orderSide,
         amount: amount,
-        limit_price: orderPrice,
+        limit_price: bufferedPrice,
         wallet_address: wallet.address!,
       });
 
