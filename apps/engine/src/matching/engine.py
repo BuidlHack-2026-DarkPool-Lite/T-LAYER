@@ -289,10 +289,13 @@ class MatchingEngine:
                     )
                     logger.debug("maker fill exc: %s", exc)
                 try:
-                    # 🔴 중요: taker 는 taker_fill_amount 로 채워야 함.
-                    # maker_fill_amount 를 쓰면 TEE 의 remaining 이 on-chain 과
-                    # 어긋나서 다음 사이클에 "taker fill exceeds remaining" revert.
-                    self._book.fill(m.taker_order_id, m.taker_fill_amount)
+                    # TEE 내부 Order.amount 는 양쪽 다 BASE(BNB) 단위로 저장됨
+                    # (프론트가 base 수량을 그대로 POST). 따라서 in-memory fill 은
+                    # 반드시 base 수량 = maker_fill_amount 를 써야 taker.amount 와
+                    # 단위가 맞는다. taker_fill_amount 는 quote(USDT) 단위라서
+                    # 쓰면 잔량이 영원히 안 줄고 on-chain 과 어긋나서 "exceeds
+                    # remaining" revert 로 이어짐.
+                    self._book.fill(m.taker_order_id, m.maker_fill_amount)
                 except ValueError as exc:
                     logger.info(
                         "taker fill 스킵 (이미 비활성): %s", m.taker_order_id[:8],

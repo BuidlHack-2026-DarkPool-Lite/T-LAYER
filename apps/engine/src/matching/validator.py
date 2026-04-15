@@ -126,16 +126,21 @@ def validate_matching_result(
 
         new_maker = cumulative_fill.get(maker_id, Decimal(0)) + fill_dec
         new_taker = cumulative_fill.get(taker_id, Decimal(0)) + fill_dec
-        if new_maker > maker.amount:
+        # remaining 기준 검증 — 이미 부분 체결된 주문이면 잔량 안에서만 허용.
+        # amount 기준으로 비교하면 이전 사이클의 체결을 무시해서 on-chain
+        # "exceeds remaining" revert 를 부른다.
+        maker_room = maker.amount - maker.filled_amount
+        taker_room = taker.amount - taker.filled_amount
+        if new_maker > maker_room:
             rejected.append({
                 "match": raw,
-                "reason": f"maker_order_id 누적 체결량({new_maker})이 원 수량({maker.amount}) 초과",
+                "reason": f"maker_order_id 누적 체결량({new_maker})이 잔량({maker_room}) 초과",
             })
             continue
-        if new_taker > taker.amount:
+        if new_taker > taker_room:
             rejected.append({
                 "match": raw,
-                "reason": f"taker_order_id 누적 체결량({new_taker})이 원 수량({taker.amount}) 초과",
+                "reason": f"taker_order_id 누적 체결량({new_taker})이 잔량({taker_room}) 초과",
             })
             continue
 
