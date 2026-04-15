@@ -289,7 +289,10 @@ class MatchingEngine:
                     )
                     logger.debug("maker fill exc: %s", exc)
                 try:
-                    self._book.fill(m.taker_order_id, m.maker_fill_amount)
+                    # 🔴 중요: taker 는 taker_fill_amount 로 채워야 함.
+                    # maker_fill_amount 를 쓰면 TEE 의 remaining 이 on-chain 과
+                    # 어긋나서 다음 사이클에 "taker fill exceeds remaining" revert.
+                    self._book.fill(m.taker_order_id, m.taker_fill_amount)
                 except ValueError as exc:
                     logger.info(
                         "taker fill 스킵 (이미 비활성): %s", m.taker_order_id[:8],
