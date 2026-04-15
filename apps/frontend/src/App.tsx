@@ -414,27 +414,23 @@ export default function App() {
       fallbackTimeoutRef.current = window.setTimeout(() => {
         fallbackTimeoutRef.current = null;
         if (flowStateRef.current !== 'match') return;
+        // 타임아웃: TEE 애니메이션 없이 바로 pending 표시
+        const fallbackPrice = priceRef.current;
+        const fallbackAmount = amountRef.current;
         setMatchStep(2);
-        setTimeout(() => setMatchStep(3), 800);
-        setTimeout(() => setMatchStep(4), 1600);
-        setTimeout(() => setMatchStep(5), 2400);
-        setTimeout(() => {
-          const fallbackPrice = priceRef.current;
-          const fallbackAmount = amountRef.current;
-          setFlowState('success');
-          setExecutionResult({
-            price: fallbackPrice,
-            amount: fallbackAmount,
-            total: (parseFloat(fallbackAmount) * parseFloat(fallbackPrice)).toFixed(2),
-            hash: depositTxHash,
-            filled: 0,
-            pending: true,
-            engine_used: null,
-            scores: null,
-            judge_reasoning: '',
-          });
-        }, 2000);
-      }, 15000);
+        setFlowState('success');
+        setExecutionResult({
+          price: fallbackPrice,
+          amount: fallbackAmount,
+          total: (parseFloat(fallbackAmount) * parseFloat(fallbackPrice)).toFixed(2),
+          hash: depositTxHash,
+          filled: 0,
+          pending: true,
+          engine_used: null,
+          scores: null,
+          judge_reasoning: '',
+        });
+      }, 120000);
 
     } catch (err: any) {
       console.error('Order execution failed:', err);
@@ -1272,41 +1268,44 @@ export default function App() {
                         <span className="text-neutral-500">{selectedToken.pair} · {orderSide.toUpperCase()} · ██████</span>
                       </div>
                     )}
-                    {/* Step 4: Competitive TEE Matching — 3 strategies */}
-                    {matchStep >= 3 && (
+                    {/* Step 3-4: Competitive TEE Matching — only show when real match data exists */}
+                    {matchStep >= 3 && executionResult && !executionResult.pending && (
+                      <>
+                        <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
+                          <span className="text-emerald-500">{'>'}</span>
+                          <span className="text-neutral-300">Qwen3-30B-A3B</span>
+                          <span className="text-neutral-600">Conservative</span>
+                          {matchStep >= 4 ? <span className={`ml-auto ${executionResult.engine_used === 'conservative' ? 'text-cyan-400 font-bold' : 'text-emerald-500'}`}>{executionResult.engine_used === 'conservative' ? 'WINNER' : 'DONE'}</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-400">{'>'}</span>
+                          <span className="text-neutral-300">GLM-5-FP8</span>
+                          <span className="text-neutral-600">Volume Max</span>
+                          {matchStep >= 4 ? <span className={`ml-auto ${executionResult.engine_used === 'volume_max' ? 'text-cyan-400 font-bold' : 'text-amber-400'}`}>{executionResult.engine_used === 'volume_max' ? 'WINNER' : 'DONE'}</span> : <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-purple-400">{'>'}</span>
+                          <span className="text-neutral-300">GPT-OSS-120B</span>
+                          <span className="text-neutral-600">Free Optimizer</span>
+                          {matchStep >= 4 ? <span className={`ml-auto ${executionResult.engine_used === 'free_optimizer' ? 'text-cyan-400 font-bold' : 'text-purple-400'}`}>{executionResult.engine_used === 'free_optimizer' ? 'WINNER' : 'DONE'}</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-cyan-400">{'>'}</span>
+                          <span className="text-cyan-400/80">Qwen3.5-122B-A10B</span>
+                          <span className="text-neutral-600">Judge</span>
+                          <span className="text-cyan-400 ml-auto">SELECTED: {executionResult.engine_used}</span>
+                        </div>
+                      </>
+                    )}
+                    {/* Waiting state — no match yet */}
+                    {matchStep >= 2 && matchStep < 5 && (!executionResult || executionResult.pending) && (
                       <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
-                        <span className="text-emerald-500">{'>'}</span>
-                        <span className="text-neutral-300">Qwen3-30B-A3B</span>
-                        <span className="text-neutral-600">Conservative</span>
-                        {matchStep >= 4 ? <span className="text-emerald-500 ml-auto">{executionResult?.scores?.conservative || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-emerald-400 animate-spin ml-auto" />}
+                        <Loader2 className="w-3 h-3 text-cyan-400 animate-spin" />
+                        <span className="text-neutral-400">Waiting for TEE competitive matching...</span>
                       </div>
                     )}
-                    {matchStep >= 3 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-amber-400">{'>'}</span>
-                        <span className="text-neutral-300">GLM-5-FP8</span>
-                        <span className="text-neutral-600">Volume Max</span>
-                        {matchStep >= 4 ? <span className="text-amber-400 ml-auto">{executionResult?.scores?.volume_max || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />}
-                      </div>
-                    )}
-                    {matchStep >= 3 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-purple-400">{'>'}</span>
-                        <span className="text-neutral-300">GPT-OSS-120B</span>
-                        <span className="text-neutral-600">Free Optimizer</span>
-                        {matchStep >= 4 ? <span className="text-purple-400 ml-auto">{executionResult?.scores?.free_optimizer || 'DONE'}</span> : <Loader2 className="w-3 h-3 text-purple-400 animate-spin ml-auto" />}
-                      </div>
-                    )}
-                    {matchStep >= 4 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-cyan-400">{'>'}</span>
-                        <span className="text-cyan-400/80">Qwen3.5-122B-A10B</span>
-                        <span className="text-neutral-600">Judge · fill(40%)+spread(30%)+fair(30%)</span>
-                        <span className="text-cyan-400 ml-auto">WINNER: {executionResult?.engine_used || matchReasoning?.engine || 'Evaluating...'}</span>
-                      </div>
-                    )}
-                    {/* Step 5: Sign + Settle */}
-                    {matchStep >= 4 && (
+                    {/* Step 5: Sign + Settle — only for real matches */}
+                    {matchStep >= 4 && executionResult && !executionResult.pending && (
                       <div className="flex items-center gap-2 pt-1 border-t border-neutral-800/30">
                         <span className="text-amber-400">{'>'}</span>
                         <span className="text-neutral-300">ECDSA signing</span>
@@ -1314,26 +1313,18 @@ export default function App() {
                         {matchStep >= 5 ? <span className="text-emerald-500 ml-auto">SIGNED</span> : <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />}
                       </div>
                     )}
-                    {matchStep >= 4 && matchStep < 5 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-amber-400">{'>'}</span>
-                        <span className="text-neutral-300">executeSwap</span>
-                        <span className="text-neutral-600">→ BNB Chain</span>
-                        <Loader2 className="w-3 h-3 text-amber-400 animate-spin ml-auto" />
-                      </div>
-                    )}
-                    {matchStep >= 5 && (
-                      <div className="flex items-center gap-2">
-                        <span className="text-amber-400">{'>'}</span>
-                        <span className="text-neutral-300">executeSwap</span>
-                        <span className="text-amber-400 ml-auto">CONFIRMED</span>
-                      </div>
-                    )}
-                    {matchStep >= 5 && (
-                      <div className="flex items-center gap-2 pt-1">
-                        <span className="text-emerald-400">✓</span>
-                        <span className="text-emerald-400 font-semibold">Pipeline complete — settlement on-chain</span>
-                      </div>
+                    {matchStep >= 5 && executionResult && !executionResult.pending && (
+                      <>
+                        <div className="flex items-center gap-2">
+                          <span className="text-amber-400">{'>'}</span>
+                          <span className="text-neutral-300">executeSwap</span>
+                          <span className="text-amber-400 ml-auto">CONFIRMED</span>
+                        </div>
+                        <div className="flex items-center gap-2 pt-1">
+                          <span className="text-emerald-400">✓</span>
+                          <span className="text-emerald-400 font-semibold">Pipeline complete — settlement on-chain</span>
+                        </div>
+                      </>
                     )}
                     {matchStep < 5 && (
                       <div className="flex items-center gap-1 mt-1">
@@ -1355,7 +1346,7 @@ export default function App() {
                   <div className="flex items-center gap-1.5">
                     <div className={`w-1.5 h-1.5 rounded-full ${matchStep > 0 ? 'bg-emerald-500 animate-pulse' : 'bg-neutral-600'}`} />
                     <span className={matchStep > 0 ? 'text-emerald-500/50' : ''}>
-                      {matchStep === 0 ? 'Initializing' : matchStep < 5 ? 'Processing' : 'Complete'}
+                      {matchStep === 0 ? 'Initializing' : matchStep >= 5 ? 'Complete' : 'Waiting for match...'}
                     </span>
                   </div>
                 </div>
