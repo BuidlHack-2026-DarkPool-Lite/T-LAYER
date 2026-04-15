@@ -1725,26 +1725,38 @@ export default function App() {
                 )}
 
                 {/* Page 3: AI Matching Analysis */}
-                {successPage === 3 && !executionResult.pending && (
-                  <div className="mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
-                    {matchReasoning ? (
+                {successPage === 3 && !executionResult.pending && (() => {
+                  // matchReasoning 이 없으면 executionResult 에서 fallback
+                  const engine = matchReasoning?.engine
+                    || executionResult?.engine_used
+                    || null;
+                  const reasoning = matchReasoning?.reasoning
+                    || executionResult?.judge_reasoning
+                    || '';
+                  const engineLabel = engine === 'conservative' ? 'Conservative'
+                    : engine === 'volume_max' ? 'Volume Max'
+                    : engine === 'free_optimizer' ? 'Free Optimizer'
+                    : engine === 'fast_path' ? 'Fast Path'
+                    : 'TEE Strategy';
+                  return (
+                    <div className="mb-6 animate-in fade-in slide-in-from-right-4 duration-300">
                       <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
                         <div className="flex items-center justify-between">
                           <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Matching Analysis</span>
-                          <span className="text-[9px] font-mono text-purple-400/60">
-                            {matchReasoning.engine === 'conservative' ? 'Conservative' : matchReasoning.engine === 'volume_max' ? 'Volume Max' : matchReasoning.engine === 'free_optimizer' ? 'Free Optimizer' : 'TEE Strategy'}
-                          </span>
+                          {engine && (
+                            <span className="text-[9px] font-mono text-purple-400/60">
+                              {engineLabel}
+                            </span>
+                          )}
                         </div>
-                        <p className="mt-2 text-xs text-neutral-400 leading-relaxed">{matchReasoning.reasoning}</p>
+                        <p className="mt-2 text-xs text-neutral-400 leading-relaxed">
+                          {reasoning
+                            || 'Executed via TEE competitive matching — 3 strategies evaluated in enclave, Judge selected the winner. Detailed reasoning was not persisted for this earlier trade.'}
+                        </p>
                       </div>
-                    ) : (
-                      <div className="bg-neutral-900/50 border border-neutral-800 rounded-lg p-4">
-                        <span className="text-[10px] font-mono text-neutral-600 uppercase tracking-wider">Matching Analysis</span>
-                        <p className="mt-2 text-xs text-neutral-500">No analysis available for this match.</p>
-                      </div>
-                    )}
-                  </div>
-                )}
+                    </div>
+                  );
+                })()}
 
                 {/* Page 4: Privacy Report */}
                 {successPage === 4 && !executionResult.pending && (
