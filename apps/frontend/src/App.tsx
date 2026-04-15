@@ -219,6 +219,16 @@ export default function App() {
     };
   }, []);
 
+  // ─── Attestation lazy fetch — 성공 페이지 진입 시에도 없으면 바로 로드 ─────
+  useEffect(() => {
+    if (flowState !== 'success') return;
+    if (attestation?.success) return;
+    // 결과 페이지에서 attestation 이 비어있으면 재시도.
+    verifyAttestation()
+      .then((att) => setAttestation(att))
+      .catch(() => { /* 무시 */ });
+  }, [flowState, attestation?.success]);
+
   // ─── Market Price (Binance ticker, 5s polling) ────────────────────────────
   useEffect(() => {
     const base = selectedToken.pair.split('/')[0];
