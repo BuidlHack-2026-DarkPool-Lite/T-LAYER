@@ -13,6 +13,19 @@ class OrderBook:
 
     def __init__(self) -> None:
         self._orders: dict[str, Order] = {}
+        # TEE 매칭 사이클이 스냅샷으로 잡은 주문 id. 매칭이 끝날 때까지
+        # MM 봇이 취소하지 못하도록 — executeSwap 이 "maker not active" 로
+        # revert 되는 race 를 방지한다.
+        self._locked_ids: set[str] = set()
+
+    def lock(self, order_ids: list[str]) -> None:
+        self._locked_ids.update(order_ids)
+
+    def unlock(self, order_ids: list[str]) -> None:
+        self._locked_ids.difference_update(order_ids)
+
+    def is_locked(self, order_id: str) -> bool:
+        return order_id in self._locked_ids
 
     def add(self, order: Order) -> Order:
         """주문 추가. order_id 중복 시 ValueError."""

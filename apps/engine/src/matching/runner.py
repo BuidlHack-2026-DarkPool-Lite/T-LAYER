@@ -22,8 +22,8 @@ async def run_matching_cycle(
     mm_bot: Any | None = None,
 ) -> None:
     """매칭 → 서명 → 제출 → WS 알림. MM 봇은 체결 후 재고 갱신 훅을 받는다."""
+    engine = MatchingEngine(orderbook)
     try:
-        engine = MatchingEngine(orderbook)
         results = await engine.run_matching_cycle(token_pair)
         if not results:
             return
@@ -57,3 +57,7 @@ async def run_matching_cycle(
             logger.info("매칭 사이클 완료: %d건 체결 (BSC 미설정)", len(results))
     except Exception:
         logger.exception("매칭 사이클 실패: token_pair=%s", token_pair)
+    finally:
+        # submit 이 끝났으므로 락 해제 — MM 봇이 다시 취소/갱신 가능.
+        if engine.last_locked_ids:
+            orderbook.unlock(engine.last_locked_ids)

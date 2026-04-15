@@ -50,6 +50,8 @@ class MatchingEngine:
         self.last_scores: list[dict] | None = None
         self.last_judge_reasoning: str = ""
         self.last_tee_verifications: list[dict] = []
+        # 이번 매칭 사이클이 잠근 주문 id — runner 가 submit 후 풀어준다.
+        self.last_locked_ids: list[str] = []
 
     async def run_matching_cycle(self, token_pair: str) -> list[MatchResult]:
         """매칭 사이클 실행."""
@@ -144,6 +146,11 @@ class MatchingEngine:
             return []
 
         orders_snapshot = copy.deepcopy(orders)
+        # 매칭 중 MM 봇이 이 주문들을 on-chain 취소하지 못하도록 락.
+        # 락 해제는 runner 에서 submit 완료 후.
+        snapshot_ids = [o.order_id for o in orders_snapshot]
+        self._book.lock(snapshot_ids)
+        self.last_locked_ids = snapshot_ids
 
         # ── Step 1: 3개 전략 병렬 실행 (모두 NEAR AI TEE) ──
         async def _conservative():

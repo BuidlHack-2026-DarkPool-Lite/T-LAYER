@@ -279,6 +279,12 @@ class MMBot:
         Escrow 가 enabled 면 on-chain cancel 이 tx hash 를 돌려줘야 확정으로 간주.
         enabled 가 아니면 로컬 오더북에서만 제거하고 True.
         """
+        # TEE 매칭이 이 주문을 스냅샷으로 잡고 있으면 취소 보류 — 다음 tick 에 재시도.
+        # 매칭 중인 주문을 on-chain cancel 하면 executeSwap 이 revert 됨.
+        if self._orderbook.is_locked(order_id):
+            logger.debug("주문이 매칭 중이어서 취소 보류: %s", order_id[:8])
+            return False
+
         # 로컬 오더북에서 먼저 제거 — on-chain cancel tx 를 기다리는 동안
         # TEE 매칭 사이클이 이 주문을 매칭해서 executeSwap 이 revert 되는
         # race 를 방지.
