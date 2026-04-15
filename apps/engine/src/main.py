@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,10 +20,26 @@ from src.ws import ConnectionManager
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-)
+# Railway/Docker 환경에서 stderr 로그는 전부 빨갛게 표시됨.
+# INFO/DEBUG → stdout, WARNING 이상 → stderr 로 분리.
+_log_fmt = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+
+_stdout_handler = logging.StreamHandler(sys.stdout)
+_stdout_handler.setLevel(logging.DEBUG)
+_stdout_handler.addFilter(lambda record: record.levelno < logging.WARNING)
+_stdout_handler.setFormatter(_log_fmt)
+
+_stderr_handler = logging.StreamHandler(sys.stderr)
+_stderr_handler.setLevel(logging.WARNING)
+_stderr_handler.setFormatter(_log_fmt)
+
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+# basicConfig 가 이미 붙였을 수 있는 기본 핸들러 제거
+for _h in list(_root.handlers):
+    _root.removeHandler(_h)
+_root.addHandler(_stdout_handler)
+_root.addHandler(_stderr_handler)
 
 logger = logging.getLogger(__name__)
 
