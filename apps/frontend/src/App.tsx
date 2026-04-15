@@ -694,7 +694,7 @@ export default function App() {
               <div className="flex-1 relative bg-[#0a0a0a] min-h-[400px] lg:min-h-0 shrink-0 lg:shrink flex flex-col">
                 {/* Exchange Tabs */}
                 <div className="flex items-center gap-1 px-4 py-2 border-b border-neutral-800/50 shrink-0">
-                  {['BINANCE', 'COINBASE', 'BYBIT', 'OKX'].map((ex) => (
+                  {['BINANCE', 'BYBIT', 'OKX'].map((ex) => (
                     <button
                       key={ex}
                       onClick={() => setChartExchange(ex)}
