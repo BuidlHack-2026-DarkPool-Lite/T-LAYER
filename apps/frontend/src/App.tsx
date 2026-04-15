@@ -448,22 +448,32 @@ export default function App() {
         // WS 끊김 대비: 백엔드에 실제 상태 조회 후 체결됐으면 success 로 반영
         let backendFilled = 0;
         let backendStatus = 'pending';
+        let backendTxHash: string | null = null;
         try {
           const status = await getOrderStatus(orderId);
           backendFilled = parseFloat(status.filled_amount) || 0;
           backendStatus = status.status;
+          backendTxHash = status.tx_hash || null;
         } catch (e) {
           console.warn('Fallback status check failed:', e);
         }
 
         const isFilled = backendStatus === 'filled' || backendFilled > 0;
+        // 폴백 경로에서도 tx_hash 복구 — Order history Action 에 BSCScan 링크가 뜨도록.
+        if (isFilled && backendTxHash) {
+          setMyOrders((prev) =>
+            prev.map((o) =>
+              o.id === orderId ? { ...o, status: 'filled' as OrderStatus, filled: 100, txHash: backendTxHash! } : o,
+            ),
+          );
+        }
         setMatchStep(2);
         setFlowState('success');
         setExecutionResult({
           price: fallbackPrice,
           amount: fallbackAmount,
           total: (parseFloat(fallbackAmount) * parseFloat(fallbackPrice)).toFixed(2),
-          hash: depositTxHash,
+          hash: backendTxHash || depositTxHash,
           filled: backendFilled,
           pending: !isFilled,
           engine_used: isFilled ? 'recovered' : null,

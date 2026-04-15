@@ -35,6 +35,7 @@ def _order_to_response(order: Order) -> OrderResponse:
         wallet_address=order.wallet_address,
         status=order.status,
         created_at=order.created_at.isoformat(),
+        tx_hash=order.tx_hash,
     )
 
 

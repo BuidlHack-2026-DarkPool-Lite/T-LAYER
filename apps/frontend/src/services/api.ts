@@ -19,6 +19,7 @@ export interface OrderResponse {
   wallet_address: string;
   status: string;
   created_at: string;
+  tx_hash?: string | null;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

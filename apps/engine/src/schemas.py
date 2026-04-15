@@ -25,6 +25,7 @@ class OrderResponse(BaseModel):
     wallet_address: str
     status: str
     created_at: str
+    tx_hash: str | None = None
 
 
 class AttestationResponse(BaseModel):

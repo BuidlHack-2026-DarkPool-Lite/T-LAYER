@@ -7,6 +7,7 @@ from web3 import Web3
 
 from src.config import BSC_CHAIN_ID, ESCROW_CONTRACT_ADDRESS, TEE_PRIVATE_KEY
 from src.models.match import MatchResult
+from src.models.orderbook import OrderBook
 from src.signer.hash_builder import build_swap_struct_hash, to_bytes32
 from src.signer.signer import get_signer_address, sign_swap
 from src.signer.submitter import (
@@ -166,8 +167,14 @@ def submit_match(match: MatchResult, signature: bytes) -> str | None:
         return None
 
 
-def process_match_results(results: list[MatchResult]) -> list[dict]:
+def process_match_results(
+    results: list[MatchResult],
+    orderbook: OrderBook | None = None,
+) -> list[dict]:
     """매칭 결과 리스트를 서명 + 제출 처리한다.
+
+    orderbook 이 주어지면 tx_hash 를 각 주문에 기록해서 WS 가 끊겨도
+    프론트가 /order/:id/status 로 복구 가능하게 한다.
 
     Returns:
         각 결과의 처리 상태 리스트.
@@ -195,6 +202,11 @@ def process_match_results(results: list[MatchResult]) -> list[dict]:
 
         tx_hash = submit_match(match, signature)
         outcome["tx_hash"] = tx_hash
+        if tx_hash and orderbook is not None:
+            for oid in (match.maker_order_id, match.taker_order_id):
+                o = orderbook.get(oid)
+                if o is not None:
+                    o.tx_hash = tx_hash
         outcomes.append(outcome)
 
     return outcomes

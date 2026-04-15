@@ -22,6 +22,7 @@ class Order(BaseModel):
     wallet_address: str
     status: OrderStatus = "pending"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    tx_hash: str | None = None
 
     @model_validator(mode="after")
     def _check_filled_not_exceeds_amount(self) -> Self:

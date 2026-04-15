@@ -28,7 +28,7 @@ async def run_matching_cycle(
         if not results:
             return
 
-        outcomes = await asyncio.to_thread(process_match_results, results)
+        outcomes = await asyncio.to_thread(process_match_results, results, orderbook)
 
         if mm_bot is not None and hasattr(mm_bot, "on_match_outcomes"):
             try:
