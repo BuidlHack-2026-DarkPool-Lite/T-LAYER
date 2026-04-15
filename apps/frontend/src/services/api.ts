@@ -20,6 +20,11 @@ export interface OrderResponse {
   status: string;
   created_at: string;
   tx_hash?: string | null;
+  engine_used?: string | null;
+  reasoning?: string | null;
+  judge_reasoning?: string | null;
+  scores?: any[] | null;
+  exec_price?: string | null;
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {

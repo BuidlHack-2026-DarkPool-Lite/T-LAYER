@@ -23,6 +23,13 @@ class Order(BaseModel):
     status: OrderStatus = "pending"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     tx_hash: str | None = None
+    # 매칭 메타데이터 — WS 를 놓쳐서 폴링 경로로 복구할 때도 분석 UI 에
+    # 같은 내용이 보이도록 Order 에 저장.
+    engine_used: str | None = None
+    reasoning: str | None = None
+    judge_reasoning: str | None = None
+    scores: list[dict] | None = None
+    exec_price: str | None = None
 
     @model_validator(mode="after")
     def _check_filled_not_exceeds_amount(self) -> Self:

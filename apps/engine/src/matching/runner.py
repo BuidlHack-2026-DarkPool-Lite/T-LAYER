@@ -53,6 +53,24 @@ async def _run_matching_cycle_locked(
 
         outcomes = await asyncio.to_thread(process_match_results, results, orderbook)
 
+        # 매칭 메타데이터를 각 주문에 저장 — WS 를 놓쳐서 폴링 경로로 복구해도
+        # 분석 UI 에 같은 정보가 보이도록.
+        for outcome in outcomes:
+            for oid_key in ("maker_order_id", "taker_order_id"):
+                oid = outcome.get(oid_key)
+                if not oid:
+                    continue
+                o = orderbook.get(oid)
+                if o is None:
+                    continue
+                o.engine_used = engine.last_engine_used
+                o.reasoning = engine.last_reasoning
+                o.judge_reasoning = engine.last_judge_reasoning
+                o.scores = engine.last_scores
+                exec_p = outcome.get("exec_price")
+                if exec_p is not None:
+                    o.exec_price = str(exec_p)
+
         if mm_bot is not None and hasattr(mm_bot, "on_match_outcomes"):
             try:
                 mm_bot.on_match_outcomes(outcomes, orderbook)

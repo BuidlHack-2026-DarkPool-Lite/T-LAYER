@@ -26,6 +26,11 @@ class OrderResponse(BaseModel):
     status: str
     created_at: str
     tx_hash: str | None = None
+    engine_used: str | None = None
+    reasoning: str | None = None
+    judge_reasoning: str | None = None
+    scores: list[dict] | None = None
+    exec_price: str | None = None
 
 
 class AttestationResponse(BaseModel):

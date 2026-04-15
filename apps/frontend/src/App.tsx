@@ -494,6 +494,13 @@ export default function App() {
       const applyFilled = (
         backendFilled: number,
         backendTxHash: string | null,
+        meta: {
+          engine_used?: string | null;
+          reasoning?: string | null;
+          judge_reasoning?: string | null;
+          scores?: any[] | null;
+          exec_price?: string | null;
+        } = {},
       ) => {
         if (backendTxHash) {
           setMyOrders((prev) =>
@@ -504,9 +511,16 @@ export default function App() {
             ),
           );
         }
+        // 매칭 근거 UI 에도 백엔드에서 받은 엔진/reasoning 복구.
+        if (meta.engine_used || meta.reasoning) {
+          setMatchReasoning({
+            engine: meta.engine_used || 'unknown',
+            reasoning: meta.reasoning || '',
+          });
+        }
         setMatchStep(5);
         setExecutionResult((prev) => ({
-          price: prev?.price ?? priceRef.current,
+          price: meta.exec_price ?? prev?.price ?? priceRef.current,
           amount: prev?.amount ?? amountRef.current,
           total:
             prev?.total ??
@@ -514,10 +528,10 @@ export default function App() {
           hash: backendTxHash || prev?.hash || depositTxHash,
           filled: backendFilled,
           pending: false,
-          engine_used: prev?.engine_used ?? 'recovered',
-          scores: prev?.scores ?? null,
+          engine_used: meta.engine_used ?? prev?.engine_used ?? 'volume_max',
+          scores: meta.scores ?? prev?.scores ?? null,
           judge_reasoning:
-            prev?.judge_reasoning ?? 'Match recovered via status poll.',
+            meta.judge_reasoning ?? prev?.judge_reasoning ?? '',
         }));
         setFlowState('success');
       };
@@ -528,7 +542,13 @@ export default function App() {
           const filled = parseFloat(status.filled_amount) || 0;
           const isFilled = status.status === 'filled' || filled > 0;
           if (isFilled) {
-            applyFilled(filled, status.tx_hash || null);
+            applyFilled(filled, status.tx_hash || null, {
+              engine_used: status.engine_used,
+              reasoning: status.reasoning,
+              judge_reasoning: status.judge_reasoning,
+              scores: status.scores,
+              exec_price: status.exec_price,
+            });
             return true;
           }
           return false;

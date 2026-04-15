@@ -43,6 +43,11 @@ def _order_to_response(order: Order) -> OrderResponse:
         status=order.status,
         created_at=order.created_at.isoformat(),
         tx_hash=order.tx_hash,
+        engine_used=order.engine_used,
+        reasoning=order.reasoning,
+        judge_reasoning=order.judge_reasoning,
+        scores=order.scores,
+        exec_price=order.exec_price,
     )
 
 
