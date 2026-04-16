@@ -529,20 +529,27 @@ export default function App() {
           });
         }
         setMatchStep(5);
-        setExecutionResult((prev) => ({
-          price: meta.exec_price ?? prev?.price ?? priceRef.current,
-          amount: prev?.amount ?? amountRef.current,
-          total:
-            prev?.total ??
-            (parseFloat(amountRef.current) * parseFloat(priceRef.current)).toFixed(2),
-          hash: backendTxHash || prev?.hash || depositTxHash,
-          filled: backendFilled,
-          pending: false,
-          engine_used: meta.engine_used ?? prev?.engine_used ?? 'volume_max',
-          scores: meta.scores ?? prev?.scores ?? null,
-          judge_reasoning:
-            meta.judge_reasoning ?? prev?.judge_reasoning ?? '',
-        }));
+        setExecutionResult((prev) => {
+          const orderAmt = parseFloat(prev?.amount ?? amountRef.current) || 0;
+          // backendFilled 는 절대 수량(base token). % 로 변환해서 표시.
+          const pct = orderAmt > 0
+            ? Math.min(100, Math.round((backendFilled / orderAmt) * 100))
+            : 100;
+          return {
+            price: meta.exec_price ?? prev?.price ?? priceRef.current,
+            amount: prev?.amount ?? amountRef.current,
+            total:
+              prev?.total ??
+              (parseFloat(amountRef.current) * parseFloat(priceRef.current)).toFixed(2),
+            hash: backendTxHash || prev?.hash || depositTxHash,
+            filled: pct,
+            pending: false,
+            engine_used: meta.engine_used ?? prev?.engine_used ?? 'volume_max',
+            scores: meta.scores ?? prev?.scores ?? null,
+            judge_reasoning:
+              meta.judge_reasoning ?? prev?.judge_reasoning ?? '',
+          };
+        });
         setFlowState('success');
       };
 
