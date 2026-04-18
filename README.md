@@ -1,4 +1,4 @@
-# 🌑 T-LAYER
+# 🌑 T-LAYER 🏆 1st Place, BNB Chain Track — BuidlHack 2026
 
 **Private OTC Trading on BNB Chain, Powered by Competitive TEE Matching**
 
